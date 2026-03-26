@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>StckMind</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:        #0a0a0a;
+      --surface:   #111111;
+      --border:    #1e1e1e;
+      --border2:   #2a2a2a;
+      --text:      #e2e2e2;
+      --muted:     #555;
+      --accent:    #00ff9d;
+      --accent2:   #00c97a;
+      --red:       #ff4d4d;
+      --yellow:    #f5c518;
+      --blue:      #4d9fff;
+      --mono:      'IBM Plex Mono', monospace;
+      --sans:      'IBM Plex Sans', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.08) 2px,
+        rgba(0,0,0,0.08) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+   
+    header {
+      border-bottom: 1px solid var(--border2);
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      background: rgba(10,10,10,0.95);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+    }
+
+    .logo {
+      font-size: 1.1rem;
+      font-weight: 600;
+      letter-spacing: 0.15em;
+      color: var(--accent);
+    }
+
+    .logo span { color: var(--muted); font-weight: 300; }
+
+    .header-right {
+      font-size: 0.7rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      margin-right: 6px;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    
+    main {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 60px 40px;
+    }
+
+    /* ── Hero ── */
+    .hero {
+      margin-bottom: 60px;
+      animation: fadeUp 0.6s ease both;
+    }
+
+    .hero-label {
+      font-size: 0.65rem;
+      letter-spacing: 0.3em;
+      color: var(--accent);
+      text-transform: uppercase;
+      margin-bottom: 16px;
+    }
+
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem);
+      font-weight: 300;
+      line-height: 1.1;
+      letter-spacing: -0.02em;
+      color: var(--text);
+      margin-bottom: 12px;
+    }
+
+    .hero h1 em {
+      font-style: normal;
+      color: var(--accent);
+    }
+
+    .hero p {
+      font-family: var(--sans);
+      font-size: 0.85rem;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+    }
+
+    /* ── Search ── */
+    .search-bar {
+      display: flex;
+      gap: 0;
+      margin-bottom: 60px;
+      border: 1px solid var(--border2);
+      background: var(--surface);
+      animation: fadeUp 0.6s 0.1s ease both;
+      transition: border-color 0.2s;
+    }
+
+    .search-bar:focus-within {
+      border-color: var(--accent);
+    }
+
+    .search-prefix {
+      padding: 0 16px;
+      display: flex;
+      align-items: center;
+      font-size: 0.75rem;
+      color: var(--accent);
+      border-right: 1px solid var(--border2);
+      white-space: nowrap;
+      letter-spacing: 0.1em;
+    }
+
+    .search-bar input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      padding: 18px 20px;
+      font-family: var(--mono);
+      font-size: 1rem;
+      color: var(--text);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .search-bar input::placeholder {
+      color: var(--muted);
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    .search-btn {
+      background: var(--accent);
+      color: #000;
+      border: none;
+      padding: 0 28px;
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      cursor: pointer;
+      text-transform: uppercase;
+      transition: background 0.2s;
+      white-space: nowrap;
+    }
+
+    .search-btn:hover { background: var(--accent2); }
+    .search-btn:disabled { background: var(--border2); color: var(--muted); cursor: not-allowed; }
+
+    /* ── Loading ── */
+    .loading {
+      display: none;
+      padding: 40px;
+      border: 1px solid var(--border2);
+      background: var(--surface);
+      margin-bottom: 40px;
+    }
+
+    .loading.active { display: block; }
+
+    .loading-line {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 10px;
+      opacity: 0;
+      animation: fadeIn 0.3s ease forwards;
+    }
+
+    .loading-line.done { color: var(--accent); }
+    .loading-line::before { content: '> '; color: var(--accent); }
+
+    @keyframes fadeIn { to { opacity: 1; } }
+
+    /* ── Results ── */
+    #results { animation: fadeUp 0.5s ease both; }
+
+    /* ── Ticker header ── */
+    .ticker-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 30px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border2);
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+
+    .ticker-name {
+      font-size: 2.5rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      color: var(--text);
+    }
+
+    .ticker-price {
+      text-align: right;
+    }
+
+    .price-label {
+      font-size: 0.6rem;
+      color: var(--muted);
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .price-value {
+      font-size: 1.8rem;
+      font-weight: 500;
+      color: var(--accent);
+    }
+
+    /* ── Recommendation badge ── */
+    .rec-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      border: 1px solid;
+      margin-bottom: 30px;
+    }
+
+    .rec-badge.BULLISH  { color: var(--accent);  border-color: var(--accent);  background: rgba(0,255,157,0.05); }
+    .rec-badge.BEARISH  { color: var(--red);      border-color: var(--red);      background: rgba(255,77,77,0.05); }
+    .rec-badge.NEUTRAL  { color: var(--yellow);   border-color: var(--yellow);   background: rgba(245,197,24,0.05); }
+
+    /* ── Grid ── */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--border);
+      margin-bottom: 1px;
+    }
+
+    .grid-full {
+      background: var(--border);
+      margin-bottom: 1px;
+    }
+
+    /* ── Cards ── */
+    .card {
+      background: var(--surface);
+      padding: 28px;
+    }
+
+    .card-label {
+      font-size: 0.6rem;
+      letter-spacing: 0.3em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border2);
+    }
+
+    /* ── Forecast table ── */
+    .forecast-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .forecast-table tr {
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+
+    .forecast-table tr:last-child { border-bottom: none; }
+    .forecast-table tr:hover { background: rgba(255,255,255,0.02); }
+
+    .forecast-table td {
+      padding: 12px 0;
+      font-size: 0.8rem;
+    }
+
+    .forecast-table .date { color: var(--muted); }
+    .forecast-table .arrow { color: var(--border2); padding: 0 12px; }
+
+    .forecast-table .price {
+      color: var(--text);
+      font-weight: 500;
+      text-align: right;
+    }
+
+    .forecast-table .change {
+      text-align: right;
+      font-size: 0.7rem;
+      padding-left: 12px;
+    }
+
+    .up   { color: var(--accent); }
+    .down { color: var(--red); }
+
+    /* ── Confidence meter ── */
+    .confidence-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .conf-label { font-size: 0.75rem; color: var(--muted); }
+    .conf-value { font-size: 0.75rem; color: var(--text); font-weight: 500; }
+
+    .conf-bar {
+      height: 3px;
+      background: var(--border2);
+      margin-bottom: 20px;
+    }
+
+    .conf-fill {
+      height: 100%;
+      background: var(--accent);
+      transition: width 1s ease;
+    }
+
+    /* ── Report ── */
+    .report-body {
+      font-family: var(--sans);
+      font-size: 0.82rem;
+      line-height: 1.8;
+      color: #b0b0b0;
+    }
+
+    .report-body h1 { display: none; }
+
+    .report-body h2 {
+      font-family: var(--mono);
+      font-size: 0.65rem;
+      letter-spacing: 0.3em;
+      color: var(--accent);
+      text-transform: uppercase;
+      margin: 28px 0 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border2);
+    }
+
+    .report-body h3 {
+      font-size: 0.8rem;
+      color: var(--text);
+      margin: 16px 0 8px;
+    }
+
+    .report-body p { margin-bottom: 12px; }
+
+    .report-body strong { color: var(--text); font-weight: 500; }
+
+    .report-body ul {
+      padding-left: 16px;
+      margin-bottom: 12px;
+    }
+
+    .report-body li { margin-bottom: 6px; }
+
+    /* ── Error ── */
+    .error-box {
+      display: none;
+      padding: 20px 28px;
+      border: 1px solid var(--red);
+      background: rgba(255,77,77,0.05);
+      font-size: 0.8rem;
+      color: var(--red);
+      margin-bottom: 40px;
+    }
+
+    .error-box.active { display: block; }
+
+    /* ── Animations ── */
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(16px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 80px;
+      padding: 24px 40px;
+      border-top: 1px solid var(--border);
+      font-size: 0.65rem;
+      color: var(--muted);
+      letter-spacing: 0.1em;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    @media (max-width: 640px) {
+      main { padding: 40px 20px; }
+      header { padding: 16px 20px; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .ticker-header { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">STCK<span>MIND</span></div>
+  <div class="header-right"><span class="status-dot"></span>SYSTEM ONLINE</div>
+</header>
+
+<main>
+
+  <!-- Hero -->
+  <div class="hero">
+    <div class="hero-label">// ML-Powered Stock Intelligence</div>
+    <h1>Predict.<br><em>Analyze.</em> Decide.</h1>
+    <p>LSTM transfer learning + multi-agent AI analysis</p>
+  </div>
+
+  <!-- Search -->
+  <div class="search-bar">
+    <div class="search-prefix">TICKER</div>
+    <input type="text" id="tickerInput" placeholder="e.g. AAPL, NVDA, TSLA" maxlength="10" />
+    <button class="search-btn" id="analyzeBtn" onclick="analyze()">ANALYZE →</button>
+  </div>
+
+  <!-- Error -->
+  <div class="error-box" id="errorBox"></div>
+
+  <!-- Loading -->
+  <div class="loading" id="loadingBox">
+    <div class="loading-line" id="l1">Fetching market data...</div>
+    <div class="loading-line" id="l2" style="animation-delay:0.8s">Running LSTM inference...</div>
+    <div class="loading-line" id="l3" style="animation-delay:1.8s">Agent 1 — Performance Analyst...</div>
+    <div class="loading-line" id="l4" style="animation-delay:2.8s">Agent 2 — Market Expert...</div>
+    <div class="loading-line" id="l5" style="animation-delay:3.8s">Agent 3 — Report Generator...</div>
+    <div class="loading-line" id="l6" style="animation-delay:4.8s">Agent 4 — Critic reviewing...</div>
+    <div class="loading-line" id="l7" style="animation-delay:5.6s">Compiling final report...</div>
+  </div>
+
+  <!-- Results -->
+  <div id="results" style="display:none"></div>
+
+</main>
+
+<footer>
+  <span>STCKMIND v1.0 — Not financial advice</span>
+  <span>LSTM + GROQ LLM</span>
+</footer>
+
+<script>
+  const API = 'http://localhost:8000';
+
+  const input = document.getElementById('tickerInput');
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') analyze(); });
+
+  async function analyze() {
+    const ticker = input.value.trim().toUpperCase();
+    if (!ticker) return;
+
+    const btn = document.getElementById('analyzeBtn');
+    const errorBox = document.getElementById('errorBox');
+    const loadingBox = document.getElementById('loadingBox');
+    const results = document.getElementById('results');
+
+    // Reset
+    btn.disabled = true;
+    errorBox.classList.remove('active');
+    results.style.display = 'none';
+    loadingBox.classList.add('active');
+
+    // Reset loading lines
+    for (let i = 1; i <= 7; i++) {
+      const el = document.getElementById('l' + i);
+      el.style.opacity = 0;
+      el.style.animation = 'none';
+      void el.offsetWidth;
+      el.style.animation = '';
+      el.style.animationDelay = ((i - 1) * 0.8) + 's';
+    }
+
+    try {
+      const res = await fetch(`${API}/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticker })
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Request failed');
+      }
+
+      const data = await res.json();
+      loadingBox.classList.remove('active');
+      results.style.display = 'block';
+      renderResults(data);
+
+    } catch (err) {
+      loadingBox.classList.remove('active');
+      errorBox.textContent = '> ERROR: ' + err.message;
+      errorBox.classList.add('active');
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function renderResults(data) {
+    const { ticker, recommendation, confidence, final_report, predictions } = data;
+    const forecast = predictions.forecast;
+    const lastClose = predictions.last_known_close;
+
+    // Confidence width
+    const confMap = { High: '85%', Medium: '50%', Low: '25%' };
+    const confWidth = confMap[confidence] || '50%';
+
+    // Build forecast rows
+    const rows = forecast.map((row, i) => {
+      const prev = i === 0 ? lastClose : forecast[i - 1].predicted_close;
+      const diff = row.predicted_close - prev;
+      const pct = ((diff / prev) * 100).toFixed(2);
+      const cls = diff >= 0 ? 'up' : 'down';
+      const sign = diff >= 0 ? '+' : '';
+      return `
+        <tr>
+          <td class="date">${row.date}</td>
+          <td class="arrow">→</td>
+          <td class="price">$${row.predicted_close.toFixed(2)}</td>
+          <td class="change ${cls}">${sign}${pct}%</td>
+        </tr>`;
+    }).join('');
+
+    // Parse markdown report to basic HTML
+    const reportHtml = parseMarkdown(final_report);
+
+    const recClass = recommendation.includes('BULL') ? 'BULLISH'
+                   : recommendation.includes('BEAR') ? 'BEARISH' : 'NEUTRAL';
+    const recIcon  = recClass === 'BULLISH' ? '▲' : recClass === 'BEARISH' ? '▼' : '◆';
+
+    document.getElementById('results').innerHTML = `
+      <div class="ticker-header">
+        <div class="ticker-name">${ticker}</div>
+        <div class="ticker-price">
+          <div class="price-label">Last Close</div>
+          <div class="price-value">$${lastClose.toFixed(2)}</div>
+        </div>
+      </div>
+
+      <div class="rec-badge ${recClass}">${recIcon} ${recommendation} &nbsp;·&nbsp; ${confidence} Confidence</div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-label">5-Day Forecast</div>
+          <table class="forecast-table">${rows}</table>
+        </div>
+
+        <div class="card">
+          <div class="card-label">Confidence</div>
+          <div class="confidence-row">
+            <span class="conf-label">Model Confidence</span>
+            <span class="conf-value">${confidence}</span>
+          </div>
+          <div class="conf-bar"><div class="conf-fill" style="width:0" id="confFill"></div></div>
+
+          <div class="confidence-row" style="margin-top:20px">
+            <span class="conf-label">Last Known Date</span>
+            <span class="conf-value">${predictions.last_known_date}</span>
+          </div>
+          <div class="confidence-row">
+            <span class="conf-label">Forecast Days</span>
+            <span class="conf-value">${forecast.length}</span>
+          </div>
+          <div class="confidence-row">
+            <span class="conf-label">Cached</span>
+            <span class="conf-value">${data.cached ? 'YES' : 'NO'}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-full">
+        <div class="card">
+          <div class="card-label">Analysis Report</div>
+          <div class="report-body">${reportHtml}</div>
+        </div>
+      </div>
+    `;
+
+    // Animate confidence bar
+    setTimeout(() => {
+      const fill = document.getElementById('confFill');
+      if (fill) fill.style.width = confWidth;
+    }, 100);
+  }
+
+  function parseMarkdown(md) {
+    return md
+      .replace(/^# .+$/gm, '')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/^\- (.+)$/gm, '<li>$1</li>')
+      .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+      .replace(/\n\n/g, '</p><p>')
+      .replace(/^(?!<[hul])/gm, '')
+      .split('\n')
+      .filter(l => l.trim())
+      .map(l => l.startsWith('<') ? l : `<p>${l}</p>`)
+      .join('\n');
+  }
+</script>
+</body>
+</html>
