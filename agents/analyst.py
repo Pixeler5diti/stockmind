@@ -9,6 +9,7 @@ from langchain_groq import ChatGroq
 from langgraph.graph import StateGraph, END
 from typing import TypedDict
 import yfinance as yf
+import numpy as np
 
 llm = ChatGroq(
     model="llama-3.1-8b-instant",
@@ -17,204 +18,197 @@ llm = ChatGroq(
 )
 
 
-
 class AgentState(TypedDict):
     ticker: str
     predictions: str
-    news_sentiment: str
-    performance_analysis: str
+    volatility: str
+    news_headlines: str
     final_report: str
     recommendation: str
     confidence: str
 
 
-
-def get_news(ticker: str) -> str:
+def get_news_headlines(ticker: str) -> str:
     try:
         stock = yf.Ticker(ticker)
-        news = stock.news[:5]
+        news  = stock.news[:5]
         if not news:
-            return "No recent news found."
-        items = []
-        for n in news:
-            title = n.get("content", {}).get("title", "No title")
-            items.append(f"- {title}")
-        return "\n".join(items)
+            return "No recent news available."
+        return "\n".join(
+            f"- {n.get('content', {}).get('title', 'No title')}"
+            for n in news
+        )
     except Exception as e:
         return f"Could not fetch news: {e}"
 
 
-# 1st agent: performance analyst
-def performance_analyst(state: AgentState) -> AgentState:
-    print("  [Agent 1] Performance Analyst running...")
+# ── Agent 1: Technical Analyst ─────────────────────────
+# FIX 6: Only uses model output data — no macro speculation
+def technical_analyst(state: AgentState) -> AgentState:
+    print("  [Agent 1] Technical Analyst running...")
 
-    prompt = f"""You are a quantitative analyst. Analyze these stock predictions for {state['ticker']}:
+    prompt = f"""You are a quantitative analyst. Analyze ONLY the data provided below for {state['ticker']}.
+Do NOT speculate about macroeconomics, geopolitics, or anything not in this data.
 
+FORECAST DATA:
 {state['predictions']}
 
-Provide:
-1. Trend direction (bullish/bearish/sideways)
-2. Price movement percentage
-3. Key observations
-4. Risk level (low/medium/high)
+RECENT VOLATILITY: {state['volatility']}% daily (30-day)
 
-Be concise and data-driven. Max 150 words."""
+Based strictly on this data, provide:
+1. Trend direction: up / down / sideways
+2. Average predicted daily move (%)
+3. Is the predicted move within normal volatility range? yes/no
+4. Risk level: low / medium / high (based on volatility only)
 
-    response = llm.invoke(prompt)
-    return {**state, "performance_analysis": response.content}
-
-
-# 2nd agent :market expert
-def market_expert(state: AgentState) -> AgentState:
-    print("  [Agent 2] Market Expert running...")
-
-    news = get_news(state["ticker"])
-
-    prompt = f"""You are a market strategist analyzing {state['ticker']}.
-
-Recent news:
-{news}
-
-Provide a 3-4 line sentiment summary covering:
-- Overall market sentiment (bullish/bearish/neutral)
-- Key catalysts or risks from the news
-- How this might affect the stock
-
-Max 100 words."""
+Max 100 words. Be concise and factual."""
 
     response = llm.invoke(prompt)
-    return {**state, "news_sentiment": response.content}
+    return {**state, "predictions": state["predictions"], "technical_analysis": response.content}
 
 
-# 3rd agent : report generator
+# ── Agent 2: News Summarizer ───────────────────────────
+# FIX 6: Only summarizes actual news headlines, no invented context
+def news_summarizer(state: AgentState) -> AgentState:
+    print("  [Agent 2] News Summarizer running...")
+
+    prompt = f"""Summarize ONLY these recent news headlines for {state['ticker']}.
+Do NOT add any analysis or context beyond what is stated.
+
+HEADLINES:
+{state['news_headlines']}
+
+Output: 2-3 sentence factual summary of the headlines only. Max 80 words."""
+
+    response = llm.invoke(prompt)
+    return {**state, "news_summary": response.content}
+
+
+# ── Agent 3: Report Generator ──────────────────────────
 def report_generator(state: AgentState) -> AgentState:
     print("  [Agent 3] Report Generator running...")
 
-    prompt = f"""Write a professional Bloomberg-style markdown report for {state['ticker']}.
+    prompt = f"""Write a concise, data-driven markdown report for {state['ticker']}.
+Use ONLY the data provided. Do NOT invent macroeconomic context.
 
-TECHNICAL ANALYSIS:
-{state['performance_analysis']}
+TECHNICAL DATA:
+{state.get('technical_analysis', '')}
 
-MARKET SENTIMENT:
-{state['news_sentiment']}
+NEWS SUMMARY:
+{state.get('news_summary', '')}
+
+FORECAST:
+{state['predictions']}
 
 Use this exact structure:
 
-# {state['ticker']} — StckMind Analysis Report
-
-## Executive Summary
-[2-3 sentences]
+# {state['ticker']} — StckMind Report
 
 ## Technical Outlook
-[Price predictions and trend analysis]
+[Based strictly on forecast data and volatility]
 
-## Market Sentiment
-[News and sentiment analysis]
+## Recent News
+[Based strictly on headlines provided]
 
 ## Recommendation
 **Market Stance:** BULLISH / BEARISH / NEUTRAL
 **Confidence:** High / Medium / Low
-**Rationale:** [1-2 sentences]
-"""
+**Rationale:** [1 sentence, data-driven only]
+
+## Disclaimer
+Model predictions are statistical estimates. Not financial advice."""
 
     response = llm.invoke(prompt)
-    text = response.content
+    text     = response.content
 
-    # recommendation and confidence
-    upper = text.upper()
-    if "BULLISH" in upper:
-        stance = "BULLISH"
-    elif "BEARISH" in upper:
-        stance = "BEARISH"
-    else:
-        stance = "NEUTRAL"
-
-    if "HIGH" in upper:
-        confidence = "High"
-    elif "LOW" in upper:
-        confidence = "Low"
-    else:
-        confidence = "Medium"
+    rec_section = text.split("## Recommendation")[-1].upper() if "## Recommendation" in text else text.upper()
+    stance      = "BULLISH" if "BULLISH" in rec_section else "BEARISH" if "BEARISH" in rec_section else "NEUTRAL"
+    confidence  = "High" if "HIGH" in rec_section else "Low" if "LOW" in rec_section else "Medium"
 
     return {**state, "final_report": text, "recommendation": stance, "confidence": confidence}
 
 
-# 4th agent : critc
+# ── Agent 4: Critic ────────────────────────────────────
 def critic(state: AgentState) -> AgentState:
     print("  [Agent 4] Critic running...")
 
-    prompt = f"""You are a Senior Financial Editor reviewing this report for {state['ticker']}.
+    prompt = f"""Review this financial report for {state['ticker']}.
 
-DRAFT REPORT:
+REPORT:
 {state['final_report']}
 
-Tasks:
-1. Verify the recommendation aligns with the technical and sentiment data
-2. Fix any inconsistencies
-3. Ensure professional tone
-4. Return the final polished report only — no commentary, no preamble."""
+Check:
+1. Does recommendation match the technical data?
+2. Are there any invented claims not backed by data?
+3. Remove any duplicate sections
+
+Return ONLY the corrected report. No commentary. No new sections. Same structure."""
 
     response = llm.invoke(prompt)
     return {**state, "final_report": response.content}
 
 
-# build graph
+# ── Build Graph ────────────────────────────────────────
 def build_graph():
     graph = StateGraph(AgentState)
+    graph.add_node("technical_analyst", technical_analyst)
+    graph.add_node("news_summarizer",   news_summarizer)
+    graph.add_node("report_generator",  report_generator)
+    graph.add_node("critic",            critic)
 
-    graph.add_node("performance_analyst", performance_analyst)
-    graph.add_node("market_expert", market_expert)
-    graph.add_node("report_generator", report_generator)
-    graph.add_node("critic", critic)
-
-    graph.set_entry_point("performance_analyst")
-    graph.add_edge("performance_analyst", "market_expert")
-    graph.add_edge("market_expert", "report_generator")
-    graph.add_edge("report_generator", "critic")
-    graph.add_edge("critic", END)
+    graph.set_entry_point("technical_analyst")
+    graph.add_edge("technical_analyst", "news_summarizer")
+    graph.add_edge("news_summarizer",   "report_generator")
+    graph.add_edge("report_generator",  "critic")
+    graph.add_edge("critic",            END)
 
     return graph.compile()
 
 
-# run analysis
+# ── Run Analysis ───────────────────────────────────────
 def run_analysis(ticker: str, predictions: dict) -> dict:
     print(f"\n[+] Running agent analysis for {ticker}...")
 
+    forecast     = predictions.get("forecast", [])
+    last_close   = predictions.get("last_known_close", 0)
+    volatility   = predictions.get("daily_volatility", 0)
 
-    forecast_str = f"Last known close: ${predictions.get('last_known_close')}\n"
-    forecast_str += "5-day forecast:\n"
-    for row in predictions.get("forecast", []):
-        forecast_str += f"  {row['date']} → ${row['predicted_close']}\n"
+    # FIX 7: Format as range output, not fake precise prices
+    forecast_str = f"Last close: ${last_close}\n"
+    forecast_str += f"{'Date':<12} {'Change':>8}  {'Range':>22}\n"
+    forecast_str += "-" * 46 + "\n"
+    for row in forecast:
+        sign = "+" if row["pct_change"] >= 0 else ""
+        forecast_str += (
+            f"{row['date']:<12} {sign}{row['pct_change']:>7.3f}%  "
+            f"[${row['low_estimate']} – ${row['high_estimate']}]\n"
+        )
 
     initial_state = AgentState(
-        ticker=ticker,
-        predictions=forecast_str,
-        news_sentiment="",
-        performance_analysis="",
-        final_report="",
-        recommendation="",
-        confidence=""
+        ticker          = ticker,
+        predictions     = forecast_str,
+        volatility      = str(volatility),
+        news_headlines  = get_news_headlines(ticker),
+        final_report    = "",
+        recommendation  = "",
+        confidence      = ""
     )
 
-    app = build_graph()
-    final_state = app.invoke(initial_state)
+    app          = build_graph()
+    final_state  = app.invoke(initial_state)
 
-    print(f"[✓] Analysis complete — {final_state['recommendation']} ({final_state['confidence']} confidence)\n")
+    print(f"[✓] Done — {final_state['recommendation']} ({final_state['confidence']} confidence)\n")
 
     return {
-        "ticker": ticker,
+        "ticker":         ticker,
         "recommendation": final_state["recommendation"],
-        "confidence": final_state["confidence"],
-        "final_report": final_state["final_report"],
-        "predictions": predictions
+        "confidence":     final_state["confidence"],
+        "final_report":   final_state["final_report"],
+        "predictions":    predictions
     }
 
 
 if __name__ == "__main__":
     from models.predict import predict
-
-    ticker = "AAPL"
-    predictions = predict(ticker)
-    result = run_analysis(ticker, predictions)
-
+    result = run_analysis("AAPL", predict("AAPL"))
     print(result["final_report"])
