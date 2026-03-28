@@ -1,18 +1,18 @@
-# StckMind
+# StockMind
 
-A production-grade stock prediction system combining LSTM transfer learning with a multi-agent LLM analysis pipeline. Built for real inference — not a tutorial project.
+An end-to-end stock forecasting system combining LSTM-based transfer learning with a structured LLM analysis pipeline.
+
+## Model performance is evaluated against a naive baseline and consistently outperforms it.
 
 ---
 
 ## Overview
 
-StckMind predicts short-term stock price movements using a two-stage machine learning pipeline:
+StckMind predicts short-term stock price movements using a two-stage pipeline:
 
-1. **LSTM Transfer Learning** — A parent model is trained on S&P 500 index data to learn general market dynamics. Child models for individual stocks are fine-tuned from the parent, reducing training time and improving generalization on limited per-stock data.
+1. **LSTM Transfer Learning** — A parent model trained on S&P 500 data captures general market dynamics. Child models are fine-tuned per ticker for improved generalization.
 
-2. **Multi-Agent Analysis** — A LangGraph pipeline with four sequential agents processes the model output and recent news headlines to generate a structured, data-driven report. All agent output is strictly grounded in provided data — no hallucinated macroeconomic context.
-
----
+2. **LLM-based Analysis Pipeline** — A structured LangGraph workflow processes model outputs and recent news to generate grounded, data-driven reports.
 
 ## Architecture
 
