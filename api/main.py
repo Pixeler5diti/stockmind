@@ -12,10 +12,11 @@ import time
 from models.train import train_child, train_parent
 from models.predict import predict
 from agents.analyst import run_analysis
+from backtest.backtest import run_backtest
 
-
+# ── App Setup ──────────────────────────────────────────
 app = FastAPI(
-    title="StockMind API",
+    title="StckMind API",
     description="Stock prediction API powered by LSTM + Transfer Learning",
     version="1.0.0"
 )
@@ -26,21 +27,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+# ── Redis ──────────────────────────────────────────────
 try:
     redis_client = redis.Redis(host="localhost", port=6379, decode_responses=True)
     redis_client.ping()
-    print("Redis connected")
+    print("[+] Redis connected")
 except Exception:
     redis_client = None
-    print("Redis not available — caching disabled")
+    print("[!] Redis not available — caching disabled")
 
 
+# ── Task Status Store (in-memory fallback) ─────────────
 task_store = {}
 
+
+# ── Request Models ─────────────────────────────────────
 class TickerRequest(BaseModel):
     ticker: str
 
 
+# ── Cache Helpers ──────────────────────────────────────
 def cache_get(key: str):
     if redis_client:
         val = redis_client.get(key)
@@ -55,6 +62,7 @@ def cache_set(key: str, value: dict, ttl: int = 86400):
         task_store[key] = value
 
 
+# ── Background Training ────────────────────────────────
 def run_training_job(ticker: str):
     task_key = f"task_{ticker.lower()}"
     try:
@@ -64,11 +72,13 @@ def run_training_job(ticker: str):
         result = predict(ticker)
         cache_set(f"predict_{ticker.lower()}", result, ttl=86400)
         cache_set(task_key, {"status": "completed", "finished_at": time.time()}, ttl=3600)
-        print(f"Training + prediction complete for {ticker}")
+        print(f"[✓] Training + prediction complete for {ticker}")
     except Exception as e:
         cache_set(task_key, {"status": "failed", "error": str(e)}, ttl=3600)
-        print(f"Training failed for {ticker}: {e}")
+        print(f"[✗] Training failed for {ticker}: {e}")
 
+
+# ── Routes ─────────────────────────────────────────────
 
 @app.get("/")
 def root():
@@ -118,13 +128,13 @@ def predict_endpoint(request: TickerRequest):
     ticker = request.ticker.strip().upper()
     cache_key = f"predict_{ticker.lower()}"
 
-  
+    # Check cache first
     cached = cache_get(cache_key)
     if cached:
         cached["cached"] = True
         return cached
 
-
+    # Try prediction
     try:
         result = predict(ticker)
         cache_set(cache_key, result, ttl=86400)
@@ -153,13 +163,13 @@ def analyze_endpoint(request: TickerRequest):
     ticker = request.ticker.strip().upper()
     cache_key = f"analyze_{ticker.lower()}"
 
-   
+    # Check cache first
     cached = cache_get(cache_key)
     if cached:
         cached["cached"] = True
         return cached
 
-   
+    # Get predictions first
     try:
         predictions = predict(ticker)
     except FileNotFoundError:
@@ -168,7 +178,7 @@ def analyze_endpoint(request: TickerRequest):
             detail=f"No model found for {ticker}. POST /train-child first."
         )
 
-    
+    # Run agents
     try:
         result = run_analysis(ticker, predictions)
         cache_set(cache_key, result, ttl=86400)
@@ -178,7 +188,32 @@ def analyze_endpoint(request: TickerRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/backtest")
+def backtest_endpoint(request: TickerRequest):
+    ticker    = request.ticker.strip().upper()
+    cache_key = f"backtest_{ticker.lower()}"
 
+    cached = cache_get(cache_key)
+    if cached:
+        cached["cached"] = True
+        return cached
+
+    try:
+        result = run_backtest(ticker)
+        # remove equity curves from API response (too large)
+        result.pop("equity_curve", None)
+        result.pop("bnh_curve", None)
+        result.pop("dates", None)
+        cache_set(cache_key, result, ttl=86400)
+        result["cached"] = False
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Run ────────────────────────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
