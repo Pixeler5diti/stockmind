@@ -33,7 +33,7 @@ def load_model(ticker: str):
 def prepare_context(ticker: str, scaler):
     df = fetch_data(
         ticker,
-        start=(pd.Timestamp.today() - pd.DateOffset(months=6)).strftime("%Y-%m-%d")
+        start=(pd.Timestamp.today() - pd.DateOffset(months=4)).strftime("%Y-%m-%d")
     )
     df = add_indicators(df)
 
