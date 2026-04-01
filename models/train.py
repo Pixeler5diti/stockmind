@@ -6,23 +6,14 @@ import joblib
 import os
 import sys
 from torch.utils.data import DataLoader, TensorDataset
-<<<<<<< HEAD
 from sklearn.preprocessing import RobustScaler
 import mlflow
 import mlflow.pytorch
-=======
-from sklearn.preprocessing import RobustScaler, StandardScaler
-import mlflow
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
 from dotenv import load_dotenv
 load_dotenv()
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-<<<<<<< HEAD
 from models.lstm_model import StockLSTM, create_sequences, scale_df, fit_scaler, CONTEXT_LEN, HIDDEN_SIZE, NUM_LAYERS
-=======
-from models.lstm_model import StockLSTM, create_sequences, CONTEXT_LEN, HIDDEN_SIZE, NUM_LAYERS
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
 from data.data_pipeline import run_pipeline, FEATURES
 
 BATCH_SIZE    = 16
@@ -30,11 +21,7 @@ PARENT_EPOCHS = 100
 CHILD_EPOCHS  = 50
 LEARNING_RATE = 0.001
 FINE_TUNE_LR  = 0.0005
-<<<<<<< HEAD
 PATIENCE      = 15
-=======
-PATIENCE      = 10
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
 GRAD_CLIP     = 0.5
 OUTPUTS_DIR   = os.path.join(os.path.dirname(__file__), "..", "outputs")
 FEATURE_STORE = os.path.join(os.path.dirname(__file__), "..", "feature_store")
@@ -59,7 +46,6 @@ def get_output_dir(ticker: str) -> str:
 
 def prepare_data(df):
     """
-<<<<<<< HEAD
     Scaler is fit on first 80% of raw rows (train period only).
     Sequences are then built from the full scaled df.
     Walk-forward split: test = last 20% of sequences.
@@ -85,45 +71,6 @@ def prepare_data(df):
     print(f"    Train sequences : {len(X_train)} | Test sequences: {len(X_test)}")
     print(f"    Vol target      — mean: {yv_train.mean():.6f}  std: {yv_train.std():.6f}")
     print(f"    Regime target   — uptrend: {yr_train.mean()*100:.1f}%")
-=======
-    Key fix: vol target is standardized separately using StandardScaler.
-    This puts vol on the same scale as BCE loss (~0-1 range),
-    so gradient signal is balanced between the two heads.
-    The vol scaler is saved alongside the feature scaler for inverse transform at inference.
-    """
-    split_row = int(len(df) * 0.8)
-    train_df  = df.iloc[:split_row]
-
-    # Feature scaler — fit on train only
-    feat_scaler = RobustScaler()
-    feat_scaler.fit(train_df[FEATURES].values)
-
-    # Vol target scaler — standardize vol so it's on same scale as BCE
-    # Fit on train vol only
-    vol_scaler = StandardScaler()
-    vol_scaler.fit(train_df[["realized_vol_5d"]].values)
-
-    df_scaled           = df.copy()
-    df_scaled[FEATURES] = feat_scaler.transform(df[FEATURES].values)
-
-    # Scale vol target
-    df_scaled["realized_vol_5d"] = vol_scaler.transform(
-        df[["realized_vol_5d"]].values
-    )
-
-    # Regime target stays as 0/1 — no scaling needed
-
-    X, y_vol, y_reg = create_sequences(df_scaled)
-
-    split = int(len(X) * 0.8)
-    X_train, X_test   = X[:split],     X[split:]
-    yv_train, yv_test = y_vol[:split], y_vol[split:]
-    yr_train, yr_test = y_reg[:split], y_reg[split:]
-
-    print(f"    Train sequences : {len(X_train)} | Test sequences: {len(X_test)}")
-    print(f"    Vol target (scaled) — mean: {yv_train.mean():.4f}  std: {yv_train.std():.4f}")
-    print(f"    Regime target       — uptrend: {yr_train.mean()*100:.1f}%")
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
 
     train_ds = TensorDataset(
         torch.tensor(X_train),
@@ -132,24 +79,14 @@ def prepare_data(df):
     )
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
 
-<<<<<<< HEAD
     return train_loader, X_test, yv_test, yr_test, scaler
-=======
-    return train_loader, X_test, yv_test, yr_test, feat_scaler, vol_scaler
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
 
 
 def train_loop(model, train_loader, optimizer, epochs, label=""):
     """
-<<<<<<< HEAD
     Two-head training loop.
     Loss = MSE on vol prediction + 0.5 * BCE on regime classification.
     Vol loss weighted higher because volatility prediction is the primary signal.
-=======
-    Loss = MSE(vol) + BCE(regime)
-    Now both losses are on comparable scales after vol standardization.
-    Added L2 regularization via weight_decay in optimizer to prevent vol overfitting.
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
     """
     vol_loss_fn = nn.MSELoss()
     reg_loss_fn = nn.BCELoss()
@@ -160,7 +97,6 @@ def train_loop(model, train_loader, optimizer, epochs, label=""):
 
     for epoch in range(1, epochs + 1):
         model.train()
-<<<<<<< HEAD
         total_loss = 0
 
         for X_batch, yv_batch, yr_batch in train_loader:
@@ -174,32 +110,15 @@ def train_loop(model, train_loader, optimizer, epochs, label=""):
             # Combined loss — vol weighted 1.0, regime weighted 0.5
             loss = loss_vol + 0.5 * loss_reg
 
-=======
-        total_vol_loss = 0
-        total_reg_loss = 0
-
-        for X_batch, yv_batch, yr_batch in train_loader:
-            optimizer.zero_grad()
-            pred_vol, pred_reg = model(X_batch)
-            loss_vol = vol_loss_fn(pred_vol, yv_batch)
-            loss_reg = reg_loss_fn(pred_reg, yr_batch)
-            loss     = loss_vol + loss_reg   # equal weight now — scales are matched
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
             optimizer.step()
             total_vol_loss += loss_vol.item()
             total_reg_loss += loss_reg.item()
 
-<<<<<<< HEAD
         avg_loss = total_loss / len(train_loader)
         mlflow.log_metric(f"{label}_train_loss", avg_loss, step=epoch)
         print(f"  [{label}] Epoch {epoch:03d}/{epochs} — Loss: {avg_loss:.7f}", end="")
-=======
-        avg_vol = total_vol_loss / len(train_loader)
-        avg_reg = total_reg_loss / len(train_loader)
-        avg_total = avg_vol + avg_reg
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
 
         mlflow.log_metric(f"{label}_vol_loss",   avg_vol,   step=epoch)
         mlflow.log_metric(f"{label}_reg_loss",   avg_reg,   step=epoch)
@@ -225,25 +144,17 @@ def train_loop(model, train_loader, optimizer, epochs, label=""):
     return model
 
 
-<<<<<<< HEAD
 def evaluate(model, X_test, yv_test, yr_test, label=""):
     """
     Evaluate both heads separately.
 
     Vol head  — R², RMSE vs naive baseline (predict mean vol every day)
     Regime head — accuracy, precision for uptrend class
-=======
-def evaluate(model, X_test, yv_test, yr_test, vol_scaler, label=""):
-    """
-    Vol metrics computed after inverse-scaling back to original vol units.
-    This makes RMSE interpretable — it's in actual daily vol terms.
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
     """
     model.eval()
     with torch.no_grad():
         pred_vol, pred_reg = model(torch.tensor(X_test))
 
-<<<<<<< HEAD
     pred_vol = pred_vol.numpy().flatten()
     pred_reg = pred_reg.numpy().flatten()
     yv_test  = yv_test.flatten()
@@ -287,56 +198,6 @@ def evaluate(model, X_test, yv_test, yr_test, vol_scaler, label=""):
         "uncertain_pct": uncertain,
     }
 
-=======
-    pred_vol_scaled = pred_vol.numpy().flatten()
-    pred_reg_raw    = pred_reg.numpy().flatten()
-    yv_scaled       = yv_test.flatten()
-    yr_test_flat    = yr_test.flatten()
-
-    # Inverse scale vol back to original units for interpretable metrics
-    pred_vol_orig = vol_scaler.inverse_transform(
-        pred_vol_scaled.reshape(-1, 1)
-    ).flatten()
-    yv_orig = vol_scaler.inverse_transform(
-        yv_scaled.reshape(-1, 1)
-    ).flatten()
-
-    # Vol metrics (in original vol units)
-    vol_mae       = np.mean(np.abs(pred_vol_orig - yv_orig))
-    vol_rmse      = np.sqrt(np.mean((pred_vol_orig - yv_orig) ** 2))
-    naive_rmse    = np.sqrt(np.mean((yv_orig - yv_orig.mean()) ** 2))
-    ss_res        = np.sum((yv_orig - pred_vol_orig) ** 2)
-    ss_tot        = np.sum((yv_orig - yv_orig.mean()) ** 2)
-    vol_r2        = 1 - ss_res / ss_tot
-
-    # Regime metrics
-    reg_pred_bin  = (pred_reg_raw > 0.5).astype(int)
-    reg_accuracy  = np.mean(reg_pred_bin == yr_test_flat) * 100
-    conf_long     = np.mean(pred_reg_raw > 0.65) * 100
-    conf_short    = np.mean(pred_reg_raw < 0.35) * 100
-    uncertain     = 100 - conf_long - conf_short
-
-    print(f"\n  Evaluation — Vol Head (original units):")
-    print(f"    MAE            : {vol_mae:.6f}")
-    print(f"    RMSE           : {vol_rmse:.6f}")
-    print(f"    Naive RMSE     : {naive_rmse:.6f}  (predict mean vol every day)")
-    print(f"    R²             : {vol_r2:.4f}")
-    print(f"    Model vs Naive : {'BETTER ✓' if vol_rmse < naive_rmse else 'WORSE ✗'}")
-    print(f"\n  Evaluation — Regime Head:")
-    print(f"    Accuracy       : {reg_accuracy:.1f}%  (50% = random)")
-    print(f"    Confident long : {conf_long:.1f}%")
-    print(f"    Confident short: {conf_short:.1f}%")
-    print(f"    Uncertain/flat : {uncertain:.1f}%")
-
-    metrics = {
-        "vol_mae": vol_mae, "vol_rmse": vol_rmse,
-        "vol_naive_rmse": naive_rmse, "vol_r2": vol_r2,
-        "reg_accuracy": reg_accuracy,
-        "conf_long_pct": conf_long,
-        "conf_short_pct": conf_short,
-        "uncertain_pct": uncertain,
-    }
->>>>>>> 0ae82b1 (improve training pipeline and model architecture)
     for k, v in metrics.items():
         mlflow.log_metric(f"{label}_{k}", v)
 
