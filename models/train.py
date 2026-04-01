@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from models.lstm_model import StockLSTM, create_sequences, scale_df, add_log_returns, CONTEXT_LEN, PRED_LEN, HIDDEN_SIZE, NUM_LAYERS, DROPOUT
+from models.lstm_model import StockLSTM, create_sequences, scale_df, fit_scaler, CONTEXT_LEN, HIDDEN_SIZE, NUM_LAYERS
 from data.data_pipeline import run_pipeline, FEATURES
 
 BATCH_SIZE    = 16
@@ -26,7 +26,6 @@ GRAD_CLIP     = 0.5
 OUTPUTS_DIR   = os.path.join(os.path.dirname(__file__), "..", "outputs")
 FEATURE_STORE = os.path.join(os.path.dirname(__file__), "..", "feature_store")
 
-# ── MLflow setup ───────────────────────────────────────
 MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
 mlflow.set_tracking_uri(MLFLOW_URI)
 mlflow.set_experiment("stckmind")
@@ -46,32 +45,52 @@ def get_output_dir(ticker: str) -> str:
 
 
 def prepare_data(df):
-    df = add_log_returns(df)
-
+    """
+    Scaler is fit on first 80% of raw rows (train period only).
+    Sequences are then built from the full scaled df.
+    Walk-forward split: test = last 20% of sequences.
+    """
     split_row = int(len(df) * 0.8)
     train_df  = df.iloc[:split_row]
-    scaler    = RobustScaler()
+
+    # FIT scaler on train rows only — no leakage
+    scaler = RobustScaler()
     scaler.fit(train_df[FEATURES].values)
 
     df_scaled           = df.copy()
     df_scaled[FEATURES] = scaler.transform(df[FEATURES].values)
 
-    X, y  = create_sequences(df_scaled)
+    # create_sequences now returns X, y_vol, y_reg
+    X, y_vol, y_reg = create_sequences(df_scaled)
+
     split = int(len(X) * 0.8)
+    X_train, X_test     = X[:split],     X[split:]
+    yv_train, yv_test   = y_vol[:split], y_vol[split:]
+    yr_train, yr_test   = y_reg[:split], y_reg[split:]
 
-    X_train, X_test = X[:split], X[split:]
-    y_train, y_test = y[:split], y[split:]
+    print(f"    Train sequences : {len(X_train)} | Test sequences: {len(X_test)}")
+    print(f"    Vol target      — mean: {yv_train.mean():.6f}  std: {yv_train.std():.6f}")
+    print(f"    Regime target   — uptrend: {yr_train.mean()*100:.1f}%")
 
-    print(f"    Train sequences: {len(X_train)} | Test sequences: {len(X_test)}")
-    print(f"    Target mean: {y_train.mean():.6f} | Target std: {y_train.std():.6f}")
-
-    train_ds     = TensorDataset(torch.tensor(X_train), torch.tensor(y_train))
+    train_ds = TensorDataset(
+        torch.tensor(X_train),
+        torch.tensor(yv_train),
+        torch.tensor(yr_train),
+    )
     train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
 
-    return train_loader, X_test, y_test, scaler
+    return train_loader, X_test, yv_test, yr_test, scaler
 
 
-def train_loop(model, train_loader, optimizer, criterion, epochs, label=""):
+def train_loop(model, train_loader, optimizer, epochs, label=""):
+    """
+    Two-head training loop.
+    Loss = MSE on vol prediction + 0.5 * BCE on regime classification.
+    Vol loss weighted higher because volatility prediction is the primary signal.
+    """
+    vol_loss_fn = nn.MSELoss()
+    reg_loss_fn = nn.BCELoss()
+
     best_loss    = float("inf")
     patience_cnt = 0
     best_weights = None
@@ -79,10 +98,18 @@ def train_loop(model, train_loader, optimizer, criterion, epochs, label=""):
     for epoch in range(1, epochs + 1):
         model.train()
         total_loss = 0
-        for X_batch, y_batch in train_loader:
+
+        for X_batch, yv_batch, yr_batch in train_loader:
             optimizer.zero_grad()
-            preds = model(X_batch)
-            loss  = criterion(preds, y_batch)
+
+            pred_vol, pred_reg = model(X_batch)
+
+            loss_vol = vol_loss_fn(pred_vol, yv_batch)
+            loss_reg = reg_loss_fn(pred_reg, yr_batch)
+
+            # Combined loss — vol weighted 1.0, regime weighted 0.5
+            loss = loss_vol + 0.5 * loss_reg
+
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
             optimizer.step()
@@ -109,35 +136,60 @@ def train_loop(model, train_loader, optimizer, criterion, epochs, label=""):
     return model
 
 
-def evaluate(model, X_test, y_test, label=""):
+def evaluate(model, X_test, yv_test, yr_test, label=""):
+    """
+    Evaluate both heads separately.
+
+    Vol head  — R², RMSE vs naive baseline (predict mean vol every day)
+    Regime head — accuracy, precision for uptrend class
+    """
     model.eval()
     with torch.no_grad():
-        preds = model(torch.tensor(X_test)).numpy()
+        pred_vol, pred_reg = model(torch.tensor(X_test))
 
-    mae        = np.mean(np.abs(preds - y_test))
-    rmse       = np.sqrt(np.mean((preds - y_test) ** 2))
-    naive_rmse = np.sqrt(np.mean(y_test ** 2))
-    ss_res     = np.sum((y_test - preds) ** 2)
-    ss_tot     = np.sum((y_test - np.mean(y_test)) ** 2)
-    r2         = 1 - ss_res / ss_tot
-    dir_acc    = np.mean(np.sign(preds) == np.sign(y_test)) * 100
-    pred_std   = preds.std()
+    pred_vol = pred_vol.numpy().flatten()
+    pred_reg = pred_reg.numpy().flatten()
+    yv_test  = yv_test.flatten()
+    yr_test  = yr_test.flatten()
 
-    print(f"\n  Evaluation:")
-    print(f"    MAE            : {mae:.7f}")
-    print(f"    RMSE           : {rmse:.7f}")
-    print(f"    Naive RMSE     : {naive_rmse:.7f}")
-    print(f"    R²             : {r2:.4f}")
-    print(f"    Direction acc  : {dir_acc:.1f}%  (50% = random)")
-    print(f"    Model vs Naive : {'BETTER ✓' if rmse < naive_rmse else 'WORSE ✗'}")
-    print(f"    Pred std       : {pred_std:.7f}  (0 = collapsed)")
+    # Vol metrics
+    vol_mae       = np.mean(np.abs(pred_vol - yv_test))
+    vol_rmse      = np.sqrt(np.mean((pred_vol - yv_test) ** 2))
+    naive_vol_rmse= np.sqrt(np.mean((yv_test - yv_test.mean()) ** 2))
+    ss_res        = np.sum((yv_test - pred_vol) ** 2)
+    ss_tot        = np.sum((yv_test - yv_test.mean()) ** 2)
+    vol_r2        = 1 - ss_res / ss_tot
+
+    # Regime metrics
+    reg_pred_binary = (pred_reg > 0.5).astype(int)
+    reg_accuracy    = np.mean(reg_pred_binary == yr_test) * 100
+
+    # Confidence distribution — how often is model confident vs uncertain
+    confident_long  = np.mean(pred_reg > 0.65) * 100
+    confident_short = np.mean(pred_reg < 0.35) * 100
+    uncertain       = 100 - confident_long - confident_short
+
+    print(f"\n  Evaluation — Vol Head:")
+    print(f"    MAE            : {vol_mae:.7f}")
+    print(f"    RMSE           : {vol_rmse:.7f}")
+    print(f"    Naive RMSE     : {naive_vol_rmse:.7f}")
+    print(f"    R²             : {vol_r2:.4f}")
+    print(f"    Model vs Naive : {'BETTER ✓' if vol_rmse < naive_vol_rmse else 'WORSE ✗'}")
+    print(f"\n  Evaluation — Regime Head:")
+    print(f"    Accuracy       : {reg_accuracy:.1f}%  (50% = random)")
+    print(f"    Confident long : {confident_long:.1f}%  (regime > 0.65)")
+    print(f"    Confident short: {confident_short:.1f}%  (regime < 0.35)")
+    print(f"    Uncertain/flat : {uncertain:.1f}%  (0.35 – 0.65)")
 
     metrics = {
-        "mae": mae, "rmse": rmse, "naive_rmse": naive_rmse,
-        "r2": r2, "dir_acc": dir_acc, "pred_std": pred_std
+        "vol_mae": vol_mae, "vol_rmse": vol_rmse,
+        "vol_naive_rmse": naive_vol_rmse, "vol_r2": vol_r2,
+        "reg_accuracy": reg_accuracy,
+        "confident_long_pct": confident_long,
+        "confident_short_pct": confident_short,
+        "uncertain_pct": uncertain,
     }
 
-    # Log to MLflow
     for k, v in metrics.items():
         mlflow.log_metric(f"{label}_{k}", v)
 
@@ -152,40 +204,36 @@ def train_parent(ticker="^GSPC"):
     df = load_parquet(ticker)
     print(f"  [+] {len(df)} rows loaded")
 
-    train_loader, X_test, y_test, scaler = prepare_data(df)
+    train_loader, X_test, yv_test, yr_test, scaler = prepare_data(df)
 
     with mlflow.start_run(run_name=f"parent_{ticker.lower().replace('^','')}"):
-        # Log hyperparameters
         mlflow.log_params({
-            "ticker":       ticker,
-            "model_type":   "parent",
-            "hidden_size":  HIDDEN_SIZE,
-            "num_layers":   NUM_LAYERS,
-            "dropout":      DROPOUT,
-            "context_len":  CONTEXT_LEN,
-            "pred_len":     PRED_LEN,
-            "batch_size":   BATCH_SIZE,
-            "epochs":       PARENT_EPOCHS,
-            "lr":           LEARNING_RATE,
-            "n_features":   len(FEATURES),
-            "optimizer":    "Adam",
-            "loss":         "MSELoss",
+            "ticker":      ticker,
+            "model_type":  "parent",
+            "hidden_size": HIDDEN_SIZE,
+            "num_layers":  NUM_LAYERS,
+            "context_len": CONTEXT_LEN,
+            "batch_size":  BATCH_SIZE,
+            "epochs":      PARENT_EPOCHS,
+            "lr":          LEARNING_RATE,
+            "n_features":  len(FEATURES),
+            "optimizer":   "Adam",
+            "loss":        "MSE+0.5*BCE",
+            "targets":     "realized_vol_5d + trend_regime",
         })
 
         model     = StockLSTM(input_size=len(FEATURES))
         optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-        criterion = nn.MSELoss()
 
-        model   = train_loop(model, train_loader, optimizer, criterion, PARENT_EPOCHS, label="parent")
-        metrics = evaluate(model, X_test, y_test, label="parent")
+        model   = train_loop(model, train_loader, optimizer, PARENT_EPOCHS, label="parent")
+        metrics = evaluate(model, X_test, yv_test, yr_test, label="parent")
 
-        out_dir = get_output_dir(ticker)
+        out_dir     = get_output_dir(ticker)
         model_path  = os.path.join(out_dir, "parent_model.pt")
         scaler_path = os.path.join(out_dir, "parent_scaler.pkl")
         torch.save(model.state_dict(), model_path)
         joblib.dump(scaler, scaler_path)
 
-        # Log artifacts to MLflow
         mlflow.log_artifact(model_path)
         mlflow.log_artifact(scaler_path)
         mlflow.set_tag("status", "completed")
@@ -215,7 +263,7 @@ def train_child(ticker: str, strategy: str = "fine_tune"):
             filter(lambda p: p.requires_grad, model.parameters()),
             lr=LEARNING_RATE
         )
-        print("  [+] LSTM frozen — training head only")
+        print("  [+] LSTM frozen — training heads only")
     else:
         optimizer = torch.optim.Adam(model.parameters(), lr=FINE_TUNE_LR)
         print("  [+] Fine-tuning all layers")
@@ -223,30 +271,28 @@ def train_child(ticker: str, strategy: str = "fine_tune"):
     df = load_parquet(ticker)
     print(f"  [+] {len(df)} rows loaded")
 
-    train_loader, X_test, y_test, scaler = prepare_data(df)
+    train_loader, X_test, yv_test, yr_test, scaler = prepare_data(df)
 
     with mlflow.start_run(run_name=f"child_{ticker.lower()}_{strategy}"):
         mlflow.log_params({
-            "ticker":          ticker,
-            "model_type":      "child",
-            "strategy":        strategy,
-            "hidden_size":     HIDDEN_SIZE,
-            "num_layers":      NUM_LAYERS,
-            "dropout":         DROPOUT,
-            "context_len":     CONTEXT_LEN,
-            "pred_len":        PRED_LEN,
-            "batch_size":      BATCH_SIZE,
-            "epochs":          CHILD_EPOCHS,
-            "lr":              FINE_TUNE_LR if strategy == "fine_tune" else LEARNING_RATE,
-            "n_features":      len(FEATURES),
-            "optimizer":       "Adam",
-            "loss":            "MSELoss",
-            "parent_ticker":   "^GSPC",
+            "ticker":        ticker,
+            "model_type":    "child",
+            "strategy":      strategy,
+            "hidden_size":   HIDDEN_SIZE,
+            "num_layers":    NUM_LAYERS,
+            "context_len":   CONTEXT_LEN,
+            "batch_size":    BATCH_SIZE,
+            "epochs":        CHILD_EPOCHS,
+            "lr":            FINE_TUNE_LR if strategy == "fine_tune" else LEARNING_RATE,
+            "n_features":    len(FEATURES),
+            "optimizer":     "Adam",
+            "loss":          "MSE+0.5*BCE",
+            "targets":       "realized_vol_5d + trend_regime",
+            "parent_ticker": "^GSPC",
         })
 
-        criterion = nn.MSELoss()
-        model     = train_loop(model, train_loader, optimizer, criterion, CHILD_EPOCHS, label=ticker)
-        metrics   = evaluate(model, X_test, y_test, label=ticker)
+        model   = train_loop(model, train_loader, optimizer, CHILD_EPOCHS, label=ticker)
+        metrics = evaluate(model, X_test, yv_test, yr_test, label=ticker)
 
         out_dir     = get_output_dir(ticker)
         model_path  = os.path.join(out_dir, f"{ticker.lower()}_child_model.pt")

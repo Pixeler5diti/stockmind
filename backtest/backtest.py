@@ -1,5 +1,5 @@
 """
-backtest.py — Walk-forward backtesting for StckMind LSTM predictions
+backtest.py — Walk-forward backtesting for StockMind LSTM predictions
 
 Strategy:
   - For each day in the test window, use the previous 60 days to predict next day return
