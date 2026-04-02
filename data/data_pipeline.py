@@ -32,6 +32,11 @@ FEATURES = [
     "Price_vs_SMA50",
 ]
 
+# Target columns produced by add_targets()
+# These are NOT model inputs — they are what the model learns to predict
+TARGETS = ["realized_vol_5d", "trend_regime"]
+
+
 def fetch_data(ticker: str, start: str = START_DATE) -> pd.DataFrame:
     print(f"[+] Fetching data for {ticker} from {start}...")
     df = yf.download(ticker, start=start, auto_adjust=True, progress=False)
@@ -43,6 +48,7 @@ def fetch_data(ticker: str, start: str = START_DATE) -> pd.DataFrame:
     df.dropna(inplace=True)
     print(f"    {len(df)} rows fetched ({df.index[0].date()} to {df.index[-1].date()})")
     return df
+
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     print("[+] Engineering features...")
@@ -93,21 +99,78 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     print(f"    {len(FEATURES)} features ready — {len(df)} clean rows")
     return df
 
+
+def add_targets(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Add prediction targets to the dataframe.
+
+    Target 1 — realized_vol_5d (regression target)
+        Standard deviation of the NEXT 5 daily log returns.
+        Tells the model how turbulent the next 5 days will be.
+        Volatility clusters — high vol today predicts high vol tomorrow.
+        This is learnable with daily technical data.
+
+    Target 2 — trend_regime (classification target)
+        Binary label: 1 if price is above its 20-day SMA, 0 if below.
+        Simple proxy for whether the stock is in an uptrend or downtrend.
+        Used by the strategy to decide direction (long vs short).
+
+    Target 3 — forward_return_1d (NOT a training target)
+        Actual next-day log return.
+        Stored in the dataframe for backtest simulation only.
+        Never passed to the model as a label.
+    """
+    print("[+] Computing targets...")
+
+    log_ret = np.log(df["Close"] / df["Close"].shift(1))
+
+    # realized_vol_5d: rolling std of next 5 returns
+    # shift(-1) moves forward one day (exclude today)
+    # rolling(5) takes 5-day window
+    # shift(-4) aligns the window so it covers days t+1 through t+5
+    df["realized_vol_5d"] = (
+        log_ret.shift(-1)
+               .rolling(5)
+               .std()
+               .shift(-4)
+    )
+
+    # trend_regime: 1 = price above SMA20 (uptrend), 0 = below (downtrend)
+    df["trend_regime"] = (df["Close"] > df["SMA20"]).astype(int)
+
+    # forward_return_1d: actual next-day log return (backtest use only)
+    df["forward_return_1d"] = log_ret.shift(-1)
+
+    # Drop rows where targets are NaN (last 5 rows will be NaN due to shifting)
+    before = len(df)
+    df.dropna(subset=["realized_vol_5d", "forward_return_1d"], inplace=True)
+    print(f"    Targets added — {before - len(df)} rows dropped (lookahead window)")
+
+    # Print target distribution for sanity check
+    print(f"    realized_vol_5d  — mean: {df['realized_vol_5d'].mean():.5f}  std: {df['realized_vol_5d'].std():.5f}")
+    print(f"    trend_regime     — uptrend: {df['trend_regime'].mean()*100:.1f}%  downtrend: {(1-df['trend_regime'].mean())*100:.1f}%")
+
+    return df
+
+
 def save_features(df: pd.DataFrame, ticker: str) -> str:
     path = os.path.join(DATA_DIR, f"{ticker.lower()}_features.parquet")
     df.to_parquet(path)
     print(f"[+] Saved → {path}")
     return path
 
+
 def run_pipeline(ticker: str) -> pd.DataFrame:
     df = fetch_data(ticker)
     df = add_indicators(df)
+    df = add_targets(df)      # new — compute vol + regime targets
     save_features(df, ticker)
     print(f"[✓] Pipeline done for {ticker}\n")
     return df
 
+
 if __name__ == "__main__":
     for ticker in ["^GSPC", "AAPL"]:
         df = run_pipeline(ticker)
-        print(df[FEATURES].tail(3))
+        print(df[FEATURES + TARGETS].tail(5))
         print()

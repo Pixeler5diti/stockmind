@@ -7,124 +7,133 @@ import sys
 from datetime import timedelta
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from models.lstm_model import StockLSTM, FEATURES, CONTEXT_LEN, PRED_LEN
-from data.data_pipeline import fetch_data, add_indicators
+from models.lstm_model import StockLSTM, FEATURES, CONTEXT_LEN
+from data.data_pipeline import fetch_data, add_indicators, add_targets
 
-OUTPUTS_DIR  = os.path.join(os.path.dirname(__file__), "..", "outputs")
-MAX_DAILY_MOVE = 0.05   # ±5% hard cap per day
+OUTPUTS_DIR    = os.path.join(os.path.dirname(__file__), "..", "outputs")
+TARGET_VOL     = 0.01
+MAX_POSITION   = 1.0
+CONF_LONG      = 0.65
+CONF_SHORT     = 0.35
 
 
 def load_model(ticker: str):
-    out_dir    = os.path.join(OUTPUTS_DIR, ticker.lower())
-    model_path = os.path.join(out_dir, f"{ticker.lower()}_child_model.pt")
-    scaler_path= os.path.join(out_dir, f"{ticker.lower()}_scaler.pkl")
+    out_dir          = os.path.join(OUTPUTS_DIR, ticker.lower())
+    model_path       = os.path.join(out_dir, f"{ticker.lower()}_child_model.pt")
+    feat_scaler_path = os.path.join(out_dir, f"{ticker.lower()}_feat_scaler.pkl")
+    vol_scaler_path  = os.path.join(out_dir, f"{ticker.lower()}_vol_scaler.pkl")
 
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"No trained model found for {ticker}.")
+        raise FileNotFoundError(f"No trained model for {ticker}. Run train.py first.")
 
     model = StockLSTM(input_size=len(FEATURES))
     model.load_state_dict(torch.load(model_path, weights_only=True))
     model.eval()
 
-    scaler = joblib.load(scaler_path)
-    return model, scaler
+    feat_scaler = joblib.load(feat_scaler_path)
+    vol_scaler  = joblib.load(vol_scaler_path)
+
+    print(f"[+] Loaded model & scalers for {ticker}")
+    return model, feat_scaler, vol_scaler
 
 
-def prepare_context(ticker: str, scaler):
+def prepare_context(ticker: str, feat_scaler):
     df = fetch_data(
         ticker,
-        start=(pd.Timestamp.today() - pd.DateOffset(months=4)).strftime("%Y-%m-%d")
+        start=(pd.Timestamp.today() - pd.DateOffset(months=6)).strftime("%Y-%m-%d")
     )
     df = add_indicators(df)
+    df = add_targets(df)
 
     if len(df) < CONTEXT_LEN:
         raise ValueError(f"Not enough rows: {len(df)} < {CONTEXT_LEN}")
 
-    # FIX 3: scale context using the SAME scaler used during training
     context        = df[FEATURES].values[-CONTEXT_LEN:]
-    context_scaled = scaler.transform(context)
+    context_scaled = feat_scaler.transform(context)
     context_tensor = torch.tensor(context_scaled, dtype=torch.float32).unsqueeze(0)
     return context_tensor, df
 
 
-def predict(ticker: str):
-    model, scaler      = load_model(ticker)
-    context_tensor, df = prepare_context(ticker, scaler)
+def compute_position(regime_prob: float, recent_vol: float) -> float:
+    if regime_prob > CONF_LONG:
+        direction = 1.0
+    elif regime_prob < CONF_SHORT:
+        direction = -1.0
+    else:
+        return 0.0
+
+    raw_size = TARGET_VOL / (recent_vol + 1e-8)
+    position = direction * min(raw_size, MAX_POSITION)
+    return round(position, 4)
+
+
+def predict(ticker: str) -> dict:
+    model, feat_scaler, vol_scaler = load_model(ticker)
+    context_tensor, df             = prepare_context(ticker, feat_scaler)
 
     with torch.no_grad():
-        raw_output = model(context_tensor).numpy().flatten()
-    # raw_output is already bounded to ±0.05 by tanh*0.05 in forward()
-    # These ARE the log returns directly — no inverse scaling needed
-    # because the target (log returns) was never scaled during training
+        pred_vol_scaled, pred_regime = model(context_tensor)
 
-    # FIX 2+5: clamp to ±MAX_DAILY_MOVE as safety net
-    log_returns = np.clip(raw_output, -MAX_DAILY_MOVE, MAX_DAILY_MOVE)
+    regime_prob = float(pred_regime.item())
+    last_close  = float(df["Close"].iloc[-1])
+    last_date   = df.index[-1]
 
-    # Sanity check — log returns should be small numbers
-    print(f"  [debug] raw log returns: {np.round(log_returns, 5)}")
+    log_ret    = np.log(df["Close"] / df["Close"].shift(1)).dropna()
+    recent_vol = float(log_ret.iloc[-20:].std())
+    position   = compute_position(regime_prob, recent_vol)
 
-    last_close = float(df["Close"].iloc[-1])
+    if position > 0:
+        stance = "LONG"
+    elif position < 0:
+        stance = "SHORT"
+    else:
+        stance = "FLAT"
 
-    # FIX 1+4: step-by-step compounding
-    # price_t = price_{t-1} * exp(log_return_t)
-    prices = []
-    prev   = last_close
-    for r in log_returns:
-        next_price = prev * np.exp(r)
-        prices.append(next_price)
-        prev = next_price   # FIX 4: use predicted price as base for next step
-
-    # Recent volatility for range estimates
-    recent_log_ret = np.log(
-        df["Close"] / df["Close"].shift(1)
-    ).dropna().values[-30:]
-    daily_std = np.std(recent_log_ret)
-
-    # Skip weekends
-    last_date      = df.index[-1]
     forecast_dates = []
     current        = last_date
-    while len(forecast_dates) < PRED_LEN:
+    while len(forecast_dates) < 5:
         current += timedelta(days=1)
         if current.weekday() < 5:
             forecast_dates.append(current)
 
     forecast = []
-    for i, (d, p, r) in enumerate(zip(forecast_dates, prices, log_returns)):
-        # Uncertainty grows with horizon (sqrt of time)
-        uncertainty = daily_std * np.sqrt(i + 1) * p
-        pct_change  = (p - (prices[i-1] if i > 0 else last_close)) / (prices[i-1] if i > 0 else last_close) * 100
+    for i, d in enumerate(forecast_dates):
+        horizon_vol = recent_vol * np.sqrt(i + 1)
+        low         = round(last_close * np.exp(-1.96 * horizon_vol), 2)
+        high        = round(last_close * np.exp(+1.96 * horizon_vol), 2)
         forecast.append({
-            "date":            d.strftime("%Y-%m-%d"),
-            "predicted_close": round(float(p), 2),
-            "low_estimate":    round(float(p - uncertainty), 2),
-            "high_estimate":   round(float(p + uncertainty), 2),
-            "pct_change":      round(float(pct_change), 3),
+            "date":    d.strftime("%Y-%m-%d"),
+            "low_95":  low,
+            "high_95": high,
+            "mid":     round(last_close, 2),
         })
 
     return {
         "ticker":           ticker,
         "last_known_date":  last_date.strftime("%Y-%m-%d"),
         "last_known_close": round(last_close, 2),
+        "regime_prob":      round(regime_prob, 4),
+        "stance":           stance,
+        "position_size":    abs(position),
+        "daily_volatility": round(recent_vol * 100, 3),
         "forecast":         forecast,
-        "daily_volatility": round(float(daily_std * 100), 3),
     }
 
 
 def print_forecast(result: dict):
     print(f"\n{'='*60}")
-    print(f"  StckMind — {result['ticker']}")
+    print(f"  StckMind Signal — {result['ticker']}")
     print(f"{'='*60}")
-    print(f"  Last close  : ${result['last_known_close']}  ({result['last_known_date']})")
-    print(f"  30d vol     : {result['daily_volatility']}% / day")
-    print(f"\n  {'Date':<12} {'Δ%':>8}   {'Low':>9}  {'Mid':>9}  {'High':>9}")
-    print(f"  {'-'*55}")
+    print(f"  Last close    : ${result['last_known_close']}  ({result['last_known_date']})")
+    print(f"  Regime prob   : {result['regime_prob']:.4f}  (>0.65=long, <0.35=short)")
+    print(f"  Stance        : {result['stance']}")
+    print(f"  Position size : {result['position_size']:.2%}  of portfolio")
+    print(f"  Daily vol     : {result['daily_volatility']}%")
+    print(f"\n  5-Day 95% Price Range:")
+    print(f"  {'Date':<12}  {'Low':>9}  {'Mid':>9}  {'High':>9}")
+    print(f"  {'-'*44}")
     for row in result["forecast"]:
-        sign = "+" if row["pct_change"] >= 0 else ""
-        print(
-            f"  {row['date']:<12} {sign}{row['pct_change']:>7.3f}%   "
-            f"${row['low_estimate']:>8.2f}  ${row['predicted_close']:>8.2f}  ${row['high_estimate']:>8.2f}"
-        )
+        print(f"  {row['date']:<12}  ${row['low_95']:>8}  ${row['mid']:>8}  ${row['high_95']:>8}")
     print(f"{'='*60}\n")
 
 
