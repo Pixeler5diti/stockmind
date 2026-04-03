@@ -12,7 +12,7 @@ import time
 from models.train import train_child, train_parent
 from models.predict import predict
 from agents.analyst import run_analysis
-from backtest.backtest import run_backtest
+
 
 app = FastAPI(
     title="StckMind API",
@@ -153,18 +153,8 @@ def analyze_endpoint(request: TickerRequest):
     except FileNotFoundError:
         raise HTTPException(404, f"No model found for {ticker}. POST /train-child first.")
 
-    # Run backtest — attach to response
     try:
-        bt = run_backtest(ticker)
-        bt.pop("equity_curve", None)
-        bt.pop("bnh_curve",    None)
-        bt.pop("dates",        None)
-    except Exception:
-        bt = None
-
-    try:
-        result       = run_analysis(ticker, predictions)
-        result["backtest"] = bt
+        result = run_analysis(ticker, predictions)
         cache_set(cache_key, result, ttl=86400)
         result["cached"] = False
         return result

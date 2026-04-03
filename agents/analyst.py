@@ -42,34 +42,29 @@ def get_news_headlines(ticker: str) -> str:
         return "News unavailable."
 
 
-# ── Agent 1: Technical Analyst ─────────────────────────
 def technical_analyst(state: AgentState) -> AgentState:
     print("  [Agent 1] Technical Analyst...")
-
     prompt = f"""You are a quantitative analyst. Use ONLY the numbers below. No macroeconomic speculation.
 
 TICKER: {state['ticker']}
-FORECAST:
+SIGNAL DATA:
 {state['forecast_table']}
 30-DAY DAILY VOLATILITY: {state['volatility']}%
 
 Answer these exactly:
-- Overall direction: UP / DOWN / FLAT
-- Average predicted daily move: X%
-- Is this within normal volatility? YES / NO
-- Biggest single-day move in forecast: X%
+- Regime signal: LONG / SHORT / FLAT
+- Position size recommended and why
+- Is current volatility high or low relative to normal?
+- Key risk: what would invalidate this signal?
 - Assessment: BULLISH / BEARISH / NEUTRAL
 
 Max 80 words. Numbers only, no invented context."""
-
     response = llm.invoke(prompt)
     return {**state, "tech_analysis": response.content}
 
 
-# ── Agent 2: News Summarizer ───────────────────────────
 def news_summarizer(state: AgentState) -> AgentState:
     print("  [Agent 2] News Summarizer...")
-
     prompt = f"""Summarize these headlines for {state['ticker']} in 2 sentences.
 State ONLY what the headlines say. Do not add interpretation.
 
@@ -77,15 +72,12 @@ HEADLINES:
 {state['news_headlines']}
 
 Max 60 words."""
-
     response = llm.invoke(prompt)
     return {**state, "news_summary": response.content}
 
 
-# ── Agent 3: Report Generator ──────────────────────────
 def report_generator(state: AgentState) -> AgentState:
     print("  [Agent 3] Report Generator...")
-
     prompt = f"""Write a short data-driven markdown report for {state['ticker']}.
 Only use the data provided. No invented analysis.
 
@@ -95,7 +87,7 @@ TECHNICAL ANALYSIS:
 NEWS SUMMARY (factual only):
 {state['news_summary']}
 
-FORECAST TABLE:
+SIGNAL DATA:
 {state['forecast_table']}
 
 Structure EXACTLY like this:
@@ -109,7 +101,7 @@ Structure EXACTLY like this:
 [1-2 sentences from news summary only]
 
 ## Model Output
-[Restate the forecast table as-is]
+[Restate the signal data as-is]
 
 ## Stance
 BULLISH / BEARISH / NEUTRAL — one word only on this line, nothing else after it
@@ -120,7 +112,6 @@ Statistical model output only. Not financial advice."""
     response = llm.invoke(prompt)
     text     = response.content
 
-    # Extract stance from the Stance section only
     stance = "NEUTRAL"
     if "## Stance" in text:
         stance_section = text.split("## Stance")[-1].split("##")[0].strip().upper()
@@ -132,10 +123,8 @@ Statistical model output only. Not financial advice."""
     return {**state, "final_report": text, "recommendation": stance}
 
 
-# ── Agent 4: Critic ────────────────────────────────────
 def critic(state: AgentState) -> AgentState:
     print("  [Agent 4] Critic...")
-
     prompt = f"""Review this report for {state['ticker']}.
 
 {state['final_report']}
@@ -147,12 +136,10 @@ Remove any:
 - speculation not backed by the data provided
 
 Return ONLY the cleaned report. Same structure. No new content."""
-
     response = llm.invoke(prompt)
     return {**state, "final_report": response.content}
 
 
-# ── Graph ──────────────────────────────────────────────
 def build_graph():
     g = StateGraph(AgentState)
     g.add_node("technical_analyst", technical_analyst)
@@ -167,28 +154,26 @@ def build_graph():
     return g.compile()
 
 
-# ── Run ────────────────────────────────────────────────
 def run_analysis(ticker: str, predictions: dict) -> dict:
     print(f"\n[+] Running agent analysis for {ticker}...")
 
-    forecast   = predictions.get("forecast", [])
-    last_close = predictions.get("last_known_close", 0)
-    volatility = predictions.get("daily_volatility", 0)
+    forecast    = predictions.get("forecast", [])
+    last_close  = predictions.get("last_known_close", 0)
+    volatility  = predictions.get("daily_volatility", 0)
+    stance      = predictions.get("stance", "UNKNOWN")
+    regime_prob = predictions.get("regime_prob", 0)
+    position    = predictions.get("position_size", 0)
 
-    # Build clean forecast table
-    table = f"Last close: ${last_close}\n"
-    table += f"{'Date':<12} {'Daily Δ%':>9}  {'Range':>26}\n"
-    table += "-" * 52 + "\n"
+    forecast_str  = f"Last close: ${last_close}\n"
+    forecast_str += f"Regime signal: {stance} (prob={regime_prob:.4f}, position={position:.1%})\n"
+    forecast_str += f"Daily volatility: {volatility}%\n\n"
+    forecast_str += "5-Day 95% price range:\n"
     for row in forecast:
-        sign = "+" if row["pct_change"] >= 0 else ""
-        table += (
-            f"{row['date']:<12} {sign}{row['pct_change']:>8.3f}%  "
-            f"[${row['low_estimate']} – ${row['high_estimate']}]\n"
-        )
+        forecast_str += f"  {row['date']}: ${row['low_95']} - ${row['high_95']}\n"
 
     initial = AgentState(
         ticker         = ticker,
-        forecast_table = table,
+        forecast_table = forecast_str,
         volatility     = str(volatility),
         news_headlines = get_news_headlines(ticker),
         tech_analysis  = "",
