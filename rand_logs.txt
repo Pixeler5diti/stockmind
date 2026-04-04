@@ -1,0 +1,184 @@
+bash-5.3$ python models/lstm_model.py
+StockLSTM(
+  (lstm): LSTM(10, 48, batch_first=True)
+  (norm): LayerNorm((48,), eps=1e-05, elementwise_affine=True)
+  (dropout): Dropout(p=0.2, inplace=False)
+  (fc1): Linear(in_features=48, out_features=24, bias=True)
+  (relu): ReLU()
+  (fc2): Linear(in_features=24, out_features=1, bias=True)
+)
+Input : torch.Size([8, 20, 10])
+Output: torch.Size([8, 1])  (raw logit — apply sigmoid for probability)
+bash-5.3$ python models/train.py
+
+=======================================================
+  TRAINING — ^GSPC
+=======================================================
+    Train: 972 | Val: 243 | Test: 304
+    Class balance (train) — vol_up: 48.6%
+Epoch 001 — 0.71300 ✓
+Epoch 002 — 0.69168 ✓
+Epoch 003 — 0.68455 ✓
+Epoch 004 — 0.68156 ✓
+Epoch 005 — 0.67908 ✓
+Epoch 006 — 0.67883 ✓
+Epoch 007 — 0.67164 ✓
+Epoch 008 — 0.66651 ✓
+Epoch 009 — 0.66754 (patience 1)
+Epoch 010 — 0.65830 ✓
+Epoch 011 — 0.65932 (patience 1)
+Epoch 012 — 0.65743 ✓
+Epoch 013 — 0.65550 ✓
+Epoch 014 — 0.64884 ✓
+Epoch 015 — 0.64896 (patience 1)
+Epoch 016 — 0.65056 (patience 2)
+Epoch 017 — 0.64817 ✓
+Epoch 018 — 0.64759 ✓
+Epoch 019 — 0.64036 ✓
+Epoch 020 — 0.63956 ✓
+Epoch 021 — 0.63756 ✓
+Epoch 022 — 0.63747 ✓
+Epoch 023 — 0.62754 ✓
+Epoch 024 — 0.62392 ✓
+Epoch 025 — 0.62209 ✓
+Epoch 026 — 0.62346 (patience 1)
+Epoch 027 — 0.62212 (patience 2)
+Epoch 028 — 0.62016 ✓
+Epoch 029 — 0.61650 ✓
+Epoch 030 — 0.60969 ✓
+Epoch 031 — 0.60980 (patience 1)
+Epoch 032 — 0.60705 ✓
+Epoch 033 — 0.60218 ✓
+Epoch 034 — 0.60854 (patience 1)
+Epoch 035 — 0.59935 ✓
+Epoch 036 — 0.58991 ✓
+Epoch 037 — 0.59038 (patience 1)
+Epoch 038 — 0.58340 ✓
+Epoch 039 — 0.58232 ✓
+Epoch 040 — 0.58036 ✓
+Epoch 041 — 0.58122 (patience 1)
+Epoch 042 — 0.58091 (patience 2)
+Epoch 043 — 0.57441 ✓
+Epoch 044 — 0.57075 ✓
+Epoch 045 — 0.57505 (patience 1)
+Epoch 046 — 0.57118 (patience 2)
+Epoch 047 — 0.57093 (patience 3)
+Epoch 048 — 0.55603 ✓
+Epoch 049 — 0.55358 ✓
+Epoch 050 — 0.54846 ✓
+Epoch 051 — 0.54354 ✓
+Epoch 052 — 0.55099 (patience 1)
+Epoch 053 — 0.55100 (patience 2)
+Epoch 054 — 0.54428 (patience 3)
+Epoch 055 — 0.54044 ✓
+Epoch 056 — 0.54526 (patience 1)
+Epoch 057 — 0.52872 ✓
+Epoch 058 — 0.52718 ✓
+Epoch 059 — 0.52206 ✓
+Epoch 060 — 0.52873 (patience 1)
+
+==================================================
+  EVAL — ^GSPC
+==================================================
+  Threshold (val-tuned) : 0.1
+  Accuracy              : 50.0%
+  F1  (primary metric)  : 0.6481
+  Precision             : 0.4912
+  Recall                : 0.9524
+
+  Baseline persistence  : 0.5153
+  Baseline majority     : 0.0000
+
+  Beats persistence     : YES ✓
+  Beats majority        : YES ✓
+
+  Verdict: BEATS BOTH BASELINES ✓
+
+  [✓] Saved → /home/diti/storage/stockmind/models/../outputs/^gspc/^gspc_child_model.pt
+
+=======================================================
+  TRAINING — AAPL
+=======================================================
+    Train: 972 | Val: 244 | Test: 305
+    Class balance (train) — vol_up: 50.3%
+  [+] Loaded parent weights from /home/diti/storage/stockmind/models/../outputs/^gspc/^gspc_child_model.pt
+Epoch 001 — 0.72765 ✓
+Epoch 002 — 0.68864 ✓
+Epoch 003 — 0.66567 ✓
+Epoch 004 — 0.64550 ✓
+Epoch 005 — 0.64637 (patience 1)
+Epoch 006 — 0.63892 ✓
+Epoch 007 — 0.63525 ✓
+Epoch 008 — 0.61379 ✓
+Epoch 009 — 0.60941 ✓
+Epoch 010 — 0.61584 (patience 1)
+Epoch 011 — 0.60224 ✓
+Epoch 012 — 0.60540 (patience 1)
+Epoch 013 — 0.59946 ✓
+Epoch 014 — 0.59903 ✓
+Epoch 015 — 0.58165 ✓
+Epoch 016 — 0.57996 ✓
+Epoch 017 — 0.57342 ✓
+Epoch 018 — 0.56119 ✓
+Epoch 019 — 0.56653 (patience 1)
+Epoch 020 — 0.57080 (patience 2)
+Epoch 021 — 0.56007 ✓
+Epoch 022 — 0.55977 ✓
+Epoch 023 — 0.54082 ✓
+Epoch 024 — 0.53598 ✓
+Epoch 025 — 0.53888 (patience 1)
+Epoch 026 — 0.52330 ✓
+Epoch 027 — 0.52678 (patience 1)
+Epoch 028 — 0.51988 ✓
+Epoch 029 — 0.53015 (patience 1)
+Epoch 030 — 0.51304 ✓
+Epoch 031 — 0.50292 ✓
+Epoch 032 — 0.50224 ✓
+Epoch 033 — 0.47972 ✓
+Epoch 034 — 0.48971 (patience 1)
+Epoch 035 — 0.47413 ✓
+Epoch 036 — 0.48586 (patience 1)
+Epoch 037 — 0.46653 ✓
+Epoch 038 — 0.45715 ✓
+Epoch 039 — 0.46774 (patience 1)
+Epoch 040 — 0.45044 ✓
+Epoch 041 — 0.45019 ✓
+Epoch 042 — 0.44285 ✓
+Epoch 043 — 0.42601 ✓
+Epoch 044 — 0.42379 ✓
+Epoch 045 — 0.42560 (patience 1)
+Epoch 046 — 0.42889 (patience 2)
+Epoch 047 — 0.41526 ✓
+Epoch 048 — 0.40012 ✓
+Epoch 049 — 0.39848 ✓
+Epoch 050 — 0.39856 (patience 1)
+Epoch 051 — 0.38154 ✓
+Epoch 052 — 0.38466 (patience 1)
+Epoch 053 — 0.38511 (patience 2)
+Epoch 054 — 0.36918 ✓
+Epoch 055 — 0.37554 (patience 1)
+Epoch 056 — 0.37096 (patience 2)
+Epoch 057 — 0.36566 ✓
+Epoch 058 — 0.34716 ✓
+Epoch 059 — 0.34075 ✓
+Epoch 060 — 0.33401 ✓
+
+==================================================
+  EVAL — AAPL
+==================================================
+  Threshold (val-tuned) : 0.1
+  Accuracy              : 53.4%
+  F1  (primary metric)  : 0.6537
+  Precision             : 0.5234
+  Recall                : 0.8701
+
+  Baseline persistence  : 0.5049
+  Baseline majority     : 0.6710
+
+  Beats persistence     : YES ✓
+  Beats majority        : NO ✗
+
+  Verdict: BEATS PERSISTENCE ONLY
+
+  [✓] Saved → /home/diti/storage/stockmind/models/../outputs/aapl/aapl_child_model.pt
+bash-5.3$ 
