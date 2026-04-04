@@ -5,36 +5,32 @@ import pandas as pd
 import joblib
 import os
 import sys
+
 from torch.utils.data import DataLoader, TensorDataset
-from sklearn.preprocessing import RobustScaler, StandardScaler
-import mlflow
-from dotenv import load_dotenv
-load_dotenv()
+from sklearn.preprocessing import RobustScaler
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-from models.lstm_model import StockLSTM, create_sequences, CONTEXT_LEN, HIDDEN_SIZE, NUM_LAYERS
-from data.data_pipeline import run_pipeline, FEATURES
+from models.lstm_model import StockLSTM, create_sequences, CONTEXT_LEN, HIDDEN_SIZE
 
 BATCH_SIZE    = 16
-PARENT_EPOCHS = 100
-CHILD_EPOCHS  = 50
-LEARNING_RATE = 0.001
-FINE_TUNE_LR  = 0.0005
+EPOCHS        = 60
+LR            = 5e-4
 PATIENCE      = 10
 GRAD_CLIP     = 0.5
-OUTPUTS_DIR   = os.path.join(os.path.dirname(__file__), "..", "outputs")
 FEATURE_STORE = os.path.join(os.path.dirname(__file__), "..", "feature_store")
-
-MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
-mlflow.set_tracking_uri(MLFLOW_URI)
-mlflow.set_experiment("stckmind")
+OUTPUTS_DIR   = os.path.join(os.path.dirname(__file__), "..", "outputs")
 
 
 def load_parquet(ticker):
     path = os.path.join(FEATURE_STORE, f"{ticker.lower()}_features.parquet")
-    if not os.path.exists(path):
-        return run_pipeline(ticker)
     return pd.read_parquet(path)
+
+
+def get_features(df):
+    exclude = {"vol_regime", "vol_direction", "forward_return_1d",
+               "Open", "High", "Low", "Close", "Volume"}
+    return [c for c in df.columns if c not in exclude]
 
 
 def get_output_dir(ticker):
@@ -44,84 +40,96 @@ def get_output_dir(ticker):
 
 
 def prepare_data(df):
-    split_row = int(len(df) * 0.8)
-    train_df  = df.iloc[:split_row]
+    df = df.copy()
+    FEATURES = get_features(df)
 
-    feat_scaler = RobustScaler()
-    feat_scaler.fit(train_df[FEATURES].values)
+    df[FEATURES] = df[FEATURES].replace([np.inf, -np.inf], np.nan)
+    df.dropna(inplace=True)
 
-    vol_scaler = StandardScaler()
-    vol_scaler.fit(train_df[["realized_vol_5d"]].values)
+    split = int(len(df) * 0.8)
+    scaler = RobustScaler()
+    scaler.fit(df.iloc[:split][FEATURES])
+    df[FEATURES] = scaler.transform(df[FEATURES])
 
-    df_scaled = df.copy()
-    df_scaled[FEATURES] = feat_scaler.transform(df[FEATURES].values)
-    df_scaled["realized_vol_5d"] = vol_scaler.transform(df[["realized_vol_5d"]].values)
+    X, y = create_sequences(df, FEATURES)
 
-    X, y_vol, y_reg = create_sequences(df_scaled)
+    s1 = int(len(X) * 0.8)
+    X_temp, X_test = X[:s1], X[s1:]
+    y_temp, y_test = y[:s1], y[s1:]
 
-    split = int(len(X) * 0.8)
-    X_train, X_test   = X[:split],     X[split:]
-    yv_train, yv_test = y_vol[:split], y_vol[split:]
-    yr_train, yr_test = y_reg[:split], y_reg[split:]
+    s2 = int(len(X_temp) * 0.8)
+    X_train, X_val = X_temp[:s2], X_temp[s2:]
+    y_train, y_val = y_temp[:s2], y_temp[s2:]
 
-    print(f"    Train sequences : {len(X_train)} | Test sequences: {len(X_test)}")
-    print(f"    Vol target (scaled) — mean: {yv_train.mean():.4f}  std: {yv_train.std():.4f}")
-    print(f"    Regime target       — uptrend: {yr_train.mean()*100:.1f}%")
+    print(f"    Train: {len(X_train)} | Val: {len(X_val)} | Test: {len(X_test)}")
+    print(f"    Class balance (train) — vol_up: {y_train.mean()*100:.1f}%")
 
-    train_ds = TensorDataset(
-        torch.tensor(X_train),
-        torch.tensor(yv_train),
-        torch.tensor(yr_train),
+    train_loader = DataLoader(
+        TensorDataset(torch.tensor(X_train), torch.tensor(y_train)),
+        batch_size=BATCH_SIZE, shuffle=True
     )
-    train_loader = DataLoader(train_ds, batch_size=BATCH_SIZE, shuffle=True)
 
-    return train_loader, X_test, yv_test, yr_test, feat_scaler, vol_scaler
+    return train_loader, X_train, y_train, X_val, y_val, X_test, y_test, len(FEATURES), scaler
 
 
-def train_loop(model, train_loader, optimizer, epochs, label=""):
-    vol_loss_fn = nn.MSELoss()
-    reg_loss_fn = nn.BCELoss()
+def baselines(y):
+    y = y.flatten().astype(int)
+
+    # Persistence: predict same as yesterday
+    persistence = np.roll(y, 1)
+    persistence[0] = y[0]
+
+    # Majority: always predict most common class
+    majority_val  = int(y.mean() >= 0.5)
+    majority_pred = np.full_like(y, majority_val)
+
+    return {
+        "persistence": f1_score(y, persistence,  zero_division=0),
+        "majority":    f1_score(y, majority_pred, zero_division=0),
+    }
+
+
+def train_loop(model, loader, y_train):
+    """
+    BCEWithLogitsLoss with pos_weight to handle class imbalance.
+    pos_weight = neg_count / pos_count
+    This makes the model penalize false negatives on the minority class more.
+    """
+    y_flat    = y_train.flatten()
+    pos_count = y_flat.sum()
+    neg_count = len(y_flat) - pos_count
+    pos_weight = torch.tensor([neg_count / (pos_count + 1e-8)], dtype=torch.float32)
+
+    criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-3)
 
     best_loss    = float("inf")
     patience_cnt = 0
     best_weights = None
 
-    for epoch in range(1, epochs + 1):
+    for epoch in range(1, EPOCHS + 1):
         model.train()
-        total_vol_loss = 0.0
-        total_reg_loss = 0.0
-
-        for X_batch, yv_batch, yr_batch in train_loader:
+        total = 0.0
+        for X_batch, y_batch in loader:
             optimizer.zero_grad()
-            pred_vol, pred_reg = model(X_batch)
-            loss_vol = vol_loss_fn(pred_vol, yv_batch)
-            loss_reg = reg_loss_fn(pred_reg, yr_batch)
-            loss     = loss_vol + loss_reg
+            logits = model(X_batch)
+            loss   = criterion(logits, y_batch)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), GRAD_CLIP)
             optimizer.step()
-            total_vol_loss += loss_vol.item()
-            total_reg_loss += loss_reg.item()
+            total += loss.item()
 
-        avg_vol   = total_vol_loss / len(train_loader)
-        avg_reg   = total_reg_loss / len(train_loader)
-        avg_total = avg_vol + avg_reg
+        avg = total / len(loader)
+        print(f"Epoch {epoch:03d} — {avg:.5f}", end="")
 
-        mlflow.log_metric(f"{label}_vol_loss",   avg_vol,   step=epoch)
-        mlflow.log_metric(f"{label}_reg_loss",   avg_reg,   step=epoch)
-        mlflow.log_metric(f"{label}_total_loss", avg_total, step=epoch)
-
-        print(f"  [{label}] Epoch {epoch:03d}/{epochs} — "
-              f"Vol: {avg_vol:.5f}  Reg: {avg_reg:.5f}  Total: {avg_total:.5f}", end="")
-
-        if avg_total < best_loss:
-            best_loss    = avg_total
+        if avg < best_loss:
+            best_loss    = avg
             patience_cnt = 0
             best_weights = {k: v.clone() for k, v in model.state_dict().items()}
             print(" ✓")
         else:
             patience_cnt += 1
-            print(f" (patience {patience_cnt}/{PATIENCE})")
+            print(f" (patience {patience_cnt})")
             if patience_cnt >= PATIENCE:
                 print(f"  [!] Early stopping at epoch {epoch}")
                 break
@@ -131,168 +139,107 @@ def train_loop(model, train_loader, optimizer, epochs, label=""):
     return model
 
 
-def evaluate(model, X_test, yv_test, yr_test, vol_scaler, label=""):
+def find_best_threshold(probs, y):
+    """Search threshold on validation set to maximise F1."""
+    best_t, best_f1 = 0.5, 0.0
+    for t in np.linspace(0.1, 0.9, 81):
+        preds = (probs >= t).astype(int)
+        f1    = f1_score(y, preds, zero_division=0)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_t  = round(float(t), 3)
+    return best_t
+
+
+def evaluate(model, X_val, y_val, X_test, y_test, ticker=""):
     model.eval()
     with torch.no_grad():
-        pred_vol, pred_reg = model(torch.tensor(X_test))
+        # Apply sigmoid manually — model outputs raw logits
+        val_probs  = torch.sigmoid(model(torch.tensor(X_val))).numpy().flatten()
+        test_probs = torch.sigmoid(model(torch.tensor(X_test))).numpy().flatten()
 
-    pred_vol_sc = pred_vol.numpy().flatten()
-    pred_reg_r  = pred_reg.numpy().flatten()
-    yv_sc       = yv_test.flatten()
-    yr_flat     = yr_test.flatten()
+    y_val_int  = y_val.flatten().astype(int)
+    y_test_int = y_test.flatten().astype(int)
 
-    pred_vol_orig = vol_scaler.inverse_transform(pred_vol_sc.reshape(-1,1)).flatten()
-    yv_orig       = vol_scaler.inverse_transform(yv_sc.reshape(-1,1)).flatten()
+    # Find best threshold on val set, apply to test
+    t     = find_best_threshold(val_probs, y_val_int)
+    preds = (test_probs >= t).astype(int)
 
-    vol_mae    = np.mean(np.abs(pred_vol_orig - yv_orig))
-    vol_rmse   = np.sqrt(np.mean((pred_vol_orig - yv_orig)**2))
-    naive_rmse = np.sqrt(np.mean((yv_orig - yv_orig.mean())**2))
-    ss_res     = np.sum((yv_orig - pred_vol_orig)**2)
-    ss_tot     = np.sum((yv_orig - yv_orig.mean())**2)
-    vol_r2     = 1 - ss_res / ss_tot
+    f1   = f1_score(y_test_int,   preds, zero_division=0)
+    prec = precision_score(y_test_int, preds, zero_division=0)
+    rec  = recall_score(y_test_int,    preds, zero_division=0)
+    acc  = float(np.mean(preds == y_test_int))
 
-    reg_bin    = (pred_reg_r > 0.5).astype(int)
-    reg_acc    = np.mean(reg_bin == yr_flat) * 100
-    conf_long  = np.mean(pred_reg_r > 0.65) * 100
-    conf_short = np.mean(pred_reg_r < 0.35) * 100
-    uncertain  = 100 - conf_long - conf_short
+    bl = baselines(y_test)
 
-    print(f"\n  Evaluation — Vol Head (original units):")
-    print(f"    MAE            : {vol_mae:.6f}")
-    print(f"    RMSE           : {vol_rmse:.6f}")
-    print(f"    Naive RMSE     : {naive_rmse:.6f}")
-    print(f"    R²             : {vol_r2:.4f}")
-    print(f"    Model vs Naive : {'BETTER ✓' if vol_rmse < naive_rmse else 'WORSE ✗'}")
-    print(f"\n  Evaluation — Regime Head:")
-    print(f"    Accuracy       : {reg_acc:.1f}%  (50% = random)")
-    print(f"    Confident long : {conf_long:.1f}%")
-    print(f"    Confident short: {conf_short:.1f}%")
-    print(f"    Uncertain/flat : {uncertain:.1f}%")
+    beats_persistence = f1 > bl["persistence"]
+    beats_majority    = f1 > bl["majority"]
+    verdict = (
+        "BEATS BOTH BASELINES ✓" if beats_persistence and beats_majority else
+        "BEATS PERSISTENCE ONLY" if beats_persistence else
+        "DOES NOT BEAT BASELINES ✗"
+    )
 
-    metrics = {
-        "vol_mae": vol_mae, "vol_rmse": vol_rmse,
-        "vol_naive_rmse": naive_rmse, "vol_r2": vol_r2,
-        "reg_accuracy": reg_acc, "conf_long_pct": conf_long,
-        "conf_short_pct": conf_short, "uncertain_pct": uncertain,
+    print(f"\n{'='*50}")
+    print(f"  EVAL — {ticker}")
+    print(f"{'='*50}")
+    print(f"  Threshold (val-tuned) : {t}")
+    print(f"  Accuracy              : {acc*100:.1f}%")
+    print(f"  F1  (primary metric)  : {f1:.4f}")
+    print(f"  Precision             : {prec:.4f}")
+    print(f"  Recall                : {rec:.4f}")
+    print(f"\n  Baseline persistence  : {bl['persistence']:.4f}")
+    print(f"  Baseline majority     : {bl['majority']:.4f}")
+    print(f"\n  Beats persistence     : {'YES ✓' if beats_persistence else 'NO ✗'}")
+    print(f"  Beats majority        : {'YES ✓' if beats_majority    else 'NO ✗'}")
+    print(f"\n  Verdict: {verdict}")
+
+    return {
+        "f1": f1, "precision": prec, "recall": rec, "accuracy": acc,
+        "threshold": t,
+        "persistence_f1": bl["persistence"],
+        "majority_f1": bl["majority"],
+        "beats_persistence": beats_persistence,
+        "beats_majority": beats_majority,
     }
-    for k, v in metrics.items():
-        mlflow.log_metric(f"{label}_{k}", v)
-
-    return metrics
 
 
-def train_parent(ticker="^GSPC"):
+def train_ticker(ticker, parent_path=None):
     print(f"\n{'='*55}")
-    print(f"  TRAINING PARENT MODEL — {ticker}")
+    print(f"  TRAINING — {ticker}")
     print(f"{'='*55}")
 
     df = load_parquet(ticker)
-    print(f"  [+] {len(df)} rows loaded")
+    train_loader, X_train, y_train, X_val, y_val, X_test, y_test, n_features, scaler = prepare_data(df)
 
-    train_loader, X_test, yv_test, yr_test, feat_scaler, vol_scaler = prepare_data(df)
+    model = StockLSTM(input_size=n_features)
 
-    with mlflow.start_run(run_name=f"parent_{ticker.lower().replace('^','')}"):
-        mlflow.log_params({
-            "ticker": ticker, "model_type": "parent",
-            "hidden_size": HIDDEN_SIZE, "num_layers": NUM_LAYERS,
-            "context_len": CONTEXT_LEN, "batch_size": BATCH_SIZE,
-            "epochs": PARENT_EPOCHS, "lr": LEARNING_RATE,
-            "n_features": len(FEATURES), "optimizer": "AdamW",
-            "loss": "MSE(vol_scaled)+BCE(regime)",
-            "targets": "realized_vol_5d + trend_regime",
-        })
+    # Load parent weights if available (transfer learning)
+    if parent_path and os.path.exists(parent_path):
+        try:
+            parent_state = torch.load(parent_path, weights_only=True)
+            model.load_state_dict(parent_state)
+            print(f"  [+] Loaded parent weights from {parent_path}")
+        except Exception as e:
+            print(f"  [!] Could not load parent weights: {e} — training from scratch")
 
-        model     = StockLSTM(input_size=len(FEATURES))
-        optimizer = torch.optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-3)
+    model = train_loop(model, train_loader, y_train)
+    metrics = evaluate(model, X_val, y_val, X_test, y_test, ticker=ticker)
 
-        model   = train_loop(model, train_loader, optimizer, PARENT_EPOCHS, label="parent")
-        metrics = evaluate(model, X_test, yv_test, yr_test, vol_scaler, label="parent")
+    # Save
+    out_dir     = get_output_dir(ticker)
+    model_path  = os.path.join(out_dir, f"{ticker.lower()}_child_model.pt")
+    scaler_path = os.path.join(out_dir, f"{ticker.lower()}_scaler.pkl")
+    torch.save(model.state_dict(), model_path)
+    joblib.dump(scaler, scaler_path)
+    print(f"\n  [✓] Saved → {model_path}")
 
-        out_dir          = get_output_dir(ticker)
-        model_path       = os.path.join(out_dir, "parent_model.pt")
-        feat_scaler_path = os.path.join(out_dir, "parent_feat_scaler.pkl")
-        vol_scaler_path  = os.path.join(out_dir, "parent_vol_scaler.pkl")
-
-        torch.save(model.state_dict(), model_path)
-        joblib.dump(feat_scaler, feat_scaler_path)
-        joblib.dump(vol_scaler,  vol_scaler_path)
-
-        mlflow.log_artifact(model_path)
-        mlflow.log_artifact(feat_scaler_path)
-        mlflow.log_artifact(vol_scaler_path)
-        mlflow.set_tag("status", "completed")
-
-    print(f"  [✓] Parent model saved\n")
-    return model, feat_scaler, vol_scaler, metrics
-
-
-def train_child(ticker, strategy="fine_tune"):
-    print(f"\n{'='*55}")
-    print(f"  TRAINING CHILD MODEL — {ticker} [{strategy}]")
-    print(f"{'='*55}")
-
-    parent_model_path = os.path.join(get_output_dir("^GSPC"), "parent_model.pt")
-    if not os.path.exists(parent_model_path):
-        print("[!] Parent not found — training parent first...")
-        train_parent()
-
-    model = StockLSTM(input_size=len(FEATURES))
-    model.load_state_dict(torch.load(parent_model_path, weights_only=True))
-    print(f"  [+] Loaded parent weights")
-
-    if strategy == "freeze":
-        for param in model.lstm.parameters():
-            param.requires_grad = False
-        optimizer = torch.optim.AdamW(
-            filter(lambda p: p.requires_grad, model.parameters()),
-            lr=LEARNING_RATE, weight_decay=1e-3
-        )
-        print("  [+] LSTM frozen — training heads only")
-    else:
-        optimizer = torch.optim.AdamW(
-            model.parameters(), lr=FINE_TUNE_LR, weight_decay=1e-3
-        )
-        print("  [+] Fine-tuning all layers")
-
-    df = load_parquet(ticker)
-    print(f"  [+] {len(df)} rows loaded")
-
-    train_loader, X_test, yv_test, yr_test, feat_scaler, vol_scaler = prepare_data(df)
-
-    with mlflow.start_run(run_name=f"child_{ticker.lower()}_{strategy}"):
-        mlflow.log_params({
-            "ticker": ticker, "model_type": "child", "strategy": strategy,
-            "hidden_size": HIDDEN_SIZE, "num_layers": NUM_LAYERS,
-            "context_len": CONTEXT_LEN, "batch_size": BATCH_SIZE,
-            "epochs": CHILD_EPOCHS,
-            "lr": FINE_TUNE_LR if strategy == "fine_tune" else LEARNING_RATE,
-            "n_features": len(FEATURES), "optimizer": "AdamW",
-            "loss": "MSE(vol_scaled)+BCE(regime)",
-            "targets": "realized_vol_5d + trend_regime",
-            "parent_ticker": "^GSPC",
-        })
-
-        model   = train_loop(model, train_loader, optimizer, CHILD_EPOCHS, label=ticker)
-        metrics = evaluate(model, X_test, yv_test, yr_test, vol_scaler, label=ticker)
-
-        out_dir          = get_output_dir(ticker)
-        model_path       = os.path.join(out_dir, f"{ticker.lower()}_child_model.pt")
-        feat_scaler_path = os.path.join(out_dir, f"{ticker.lower()}_feat_scaler.pkl")
-        vol_scaler_path  = os.path.join(out_dir, f"{ticker.lower()}_vol_scaler.pkl")
-
-        torch.save(model.state_dict(), model_path)
-        joblib.dump(feat_scaler, feat_scaler_path)
-        joblib.dump(vol_scaler,  vol_scaler_path)
-
-        mlflow.log_artifact(model_path)
-        mlflow.log_artifact(feat_scaler_path)
-        mlflow.log_artifact(vol_scaler_path)
-        mlflow.set_tag("status", "completed")
-
-    print(f"  [✓] Child model saved\n")
-    return model, feat_scaler, vol_scaler, metrics
+    return model, scaler, metrics, model_path
 
 
 if __name__ == "__main__":
-    train_parent("^GSPC")
-    train_child("AAPL", strategy="fine_tune")
+    # Train parent first
+    _, _, _, parent_path = train_ticker("^GSPC")
+
+    # Train child with parent weights
+    train_ticker("AAPL", parent_path=parent_path)
