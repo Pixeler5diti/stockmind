@@ -1,17 +1,31 @@
 """
-backtest.py — Walk-forward backtest using regime signal + volatility-targeted sizing.
+backtest.py — Vol-scaled long-only strategy.
 
-Strategy:
-  - Each day: use last 30 days of features to get regime probability
-  - If P(uptrend) > 0.65: go long, sized by vol target
-  - If P(uptrend) < 0.35: go short, sized by vol target
-  - Else: stay flat
-  - Position size = TARGET_VOL / realized_vol_20d (capped at 1x)
-  - Transaction cost applied on position change magnitude
+Core idea:
+  Always long the asset. Scale position based on volatility direction signal.
+  When vol is rising (risky) → reduce exposure.
+  When vol is falling (calm) → increase exposure.
+  This is risk management, not direction prediction.
 
-Metrics:
-  - Sharpe, Sortino, Max Drawdown, Win Rate, Profit Factor
-  - vs Buy-and-Hold baseline
+Position logic:
+  base_position = 1.0
+  vol_prob = sigmoid output of vol_direction model
+
+  raw_position = 1.0 - 0.5 * (vol_prob - 0.5) * 2
+    → vol_prob=1.0 (very high vol) → position=0.5
+    → vol_prob=0.5 (uncertain)     → position=1.0
+    → vol_prob=0.0 (very low vol)  → position=1.5
+
+  Confidence filter:
+    Only update position if vol_prob > 0.6 or vol_prob < 0.4
+    Otherwise hold current position (avoid noise)
+
+  EMA smoothing (span=5) applied to raw positions
+  Clipped to [0.0, 1.5]
+  Transaction cost: 0.02% (0.0002) per unit of position change
+
+No lookahead:
+  Signal at close of day t → applied to return of day t+1
 """
 
 import sys
@@ -24,59 +38,78 @@ import pandas as pd
 import joblib
 import json
 
-from models.lstm_model import StockLSTM, FEATURES, CONTEXT_LEN
-from models.predict import compute_position
+from models.lstm_model import StockLSTM, CONTEXT_LEN
 
 OUTPUTS_DIR   = os.path.join(os.path.dirname(__file__), "..", "outputs")
 BACKTEST_DIR  = os.path.join(os.path.dirname(__file__), "..", "outputs", "backtest")
 FEATURE_STORE = os.path.join(os.path.dirname(__file__), "..", "feature_store")
 os.makedirs(BACKTEST_DIR, exist_ok=True)
 
-INITIAL_CAP   = 10_000.0
-TRANSACTION   = 0.001       # 0.1% per unit of position change
-TRADING_DAYS  = 252
-VOL_WINDOW    = 20          # days for realized vol estimate
+INITIAL_CAP  = 10_000.0
+TRANSACTION  = 0.0002      # 0.02% per unit of position change
+TRADING_DAYS = 252
+VOL_WINDOW   = 20
+CONF_HIGH    = 0.6         # only act if vol_prob above this...
+CONF_LOW     = 0.4         # ...or below this
+POS_MIN      = 0.0
+POS_MAX      = 1.5
+EMA_SPAN     = 5
 
 
-def load_model(ticker: str):
-    out_dir          = os.path.join(OUTPUTS_DIR, ticker.lower())
-    model_path       = os.path.join(out_dir, f"{ticker.lower()}_child_model.pt")
-    feat_scaler_path = os.path.join(out_dir, f"{ticker.lower()}_feat_scaler.pkl")
+def load_vol_model(ticker):
+    out_dir     = os.path.join(OUTPUTS_DIR, ticker.lower())
+    model_path  = os.path.join(out_dir, "vol_model.pt")
+    scaler_path = os.path.join(out_dir, "vol_model_scaler.pkl")
 
     if not os.path.exists(model_path):
-        raise FileNotFoundError(f"No model for {ticker}. Run train.py first.")
+        raise FileNotFoundError(f"No vol_model for {ticker}. Run train.py first.")
 
-    model = StockLSTM(input_size=len(FEATURES))
+    scaler     = joblib.load(scaler_path)
+    n_features = scaler.n_features_in_
+    model      = StockLSTM(input_size=n_features)
     model.load_state_dict(torch.load(model_path, weights_only=True))
     model.eval()
-
-    feat_scaler = joblib.load(feat_scaler_path)
-    return model, feat_scaler
+    return model, scaler
 
 
-def load_data(ticker: str) -> pd.DataFrame:
+def get_features(df):
+    exclude = {"vol_regime", "vol_direction", "price_direction",
+               "forward_return_1d", "Open", "High", "Low", "Close", "Volume"}
+    return [c for c in df.columns if c not in exclude]
+
+
+def load_data(ticker):
     path = os.path.join(FEATURE_STORE, f"{ticker.lower()}_features.parquet")
     if not os.path.exists(path):
-        raise FileNotFoundError(f"No feature data for {ticker}. Run data_pipeline.py first.")
+        raise FileNotFoundError(f"No feature data for {ticker}.")
     df = pd.read_parquet(path)
     df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
     df.dropna(inplace=True)
     return df
 
 
-# ── Quant Metrics ──────────────────────────────────────
+def ema_smooth(series, span=EMA_SPAN):
+    """Exponential moving average for position smoothing."""
+    alpha  = 2 / (span + 1)
+    result = [series[0]]
+    for v in series[1:]:
+        result.append(alpha * v + (1 - alpha) * result[-1])
+    return np.array(result)
+
+
+# ── Metrics ────────────────────────────────────────────
 
 def sharpe(returns, periods=TRADING_DAYS):
-    if returns.std() == 0:
+    if len(returns) == 0 or returns.std() == 0:
         return 0.0
     return float(returns.mean() / returns.std() * np.sqrt(periods))
 
 
 def sortino(returns, periods=TRADING_DAYS):
-    downside = returns[returns < 0]
-    if len(downside) == 0 or downside.std() == 0:
+    down = returns[returns < 0]
+    if len(down) == 0 or down.std() == 0:
         return 0.0
-    return float(returns.mean() / downside.std() * np.sqrt(periods))
+    return float(returns.mean() / down.std() * np.sqrt(periods))
 
 
 def max_drawdown(equity):
@@ -89,69 +122,85 @@ def annualized_return(total_ret, n_days):
     return float((1 + total_ret) ** (TRADING_DAYS / n_days) - 1)
 
 
-def profit_factor(returns):
-    gains  = returns[returns > 0].sum()
-    losses = abs(returns[returns < 0].sum())
-    return float(gains / losses) if losses > 0 else float("inf")
-
-
-# ── Backtest Engine ────────────────────────────────────
+# ── Backtest engine ────────────────────────────────────
 
 def run_backtest(ticker: str) -> dict:
     print(f"\n{'='*60}")
-    print(f"  BACKTEST — {ticker}")
+    print(f"  VOL-SCALED LONG BACKTEST — {ticker}")
     print(f"{'='*60}")
 
-    model, feat_scaler = load_model(ticker)
-    df                 = load_data(ticker)
+    vol_model, vol_scaler = load_vol_model(ticker)
+    df       = load_data(ticker)
+    features = get_features(df)
 
-    # Walk-forward: test on last 20% of data
-    split_idx = int(len(df) * 0.8)
-    n_test    = len(df) - split_idx
+    df_feat          = df.copy()
+    df_feat[features] = df_feat[features].replace([np.inf, -np.inf], np.nan)
+    df_feat.dropna(inplace=True)
 
-    print(f"  Test window : {df.index[split_idx].date()} → {df.index[-1].date()}")
+    split_idx = int(len(df_feat) * 0.8)
+    n_test    = len(df_feat) - split_idx
+
+    print(f"  Test window : {df_feat.index[split_idx].date()} → {df_feat.index[-1].date()}")
     print(f"  Test days   : {n_test}")
 
+    n_features = vol_scaler.n_features_in_
+
+    # ── Pass 1: generate raw positions ─────────────────
+    raw_positions = []
+    vol_probs_all = []
+    current_pos   = 1.0   # start fully long
+
+    for i in range(split_idx, len(df_feat) - 1):
+        if i < CONTEXT_LEN + VOL_WINDOW:
+            raw_positions.append(1.0)
+            vol_probs_all.append(0.5)
+            continue
+
+        window     = df_feat.iloc[i - CONTEXT_LEN:i][features].values
+        window_sc  = vol_scaler.transform(window[:, :n_features])
+        tensor     = torch.tensor(window_sc, dtype=torch.float32).unsqueeze(0)
+
+        with torch.no_grad():
+            vol_prob = float(torch.sigmoid(vol_model(tensor)).item())
+
+        # Confidence filter — only update if model is decisive
+        if vol_prob > CONF_HIGH or vol_prob < CONF_LOW:
+            # Continuous scaling: high vol_prob → reduce, low vol_prob → increase
+            raw_pos = 1.0 - 0.5 * (vol_prob - 0.5) * 2
+            raw_pos = float(np.clip(raw_pos, POS_MIN, POS_MAX))
+            current_pos = raw_pos
+        # else: hold current_pos (no change when uncertain)
+
+        raw_positions.append(current_pos)
+        vol_probs_all.append(vol_prob)
+
+    # ── Pass 2: EMA smooth positions ───────────────────
+    raw_arr      = np.array(raw_positions)
+    smooth_pos   = ema_smooth(raw_arr, span=EMA_SPAN)
+    smooth_pos   = np.clip(smooth_pos, POS_MIN, POS_MAX)
+
+    # ── Pass 3: simulate returns ────────────────────────
     portfolio     = INITIAL_CAP
     bnh_portfolio = INITIAL_CAP
-    prev_position = 0.0
+    prev_position = 1.0
 
     strat_returns = []
     bnh_returns   = []
     equity        = [INITIAL_CAP]
-    bnh_equity    = [INITIAL_CAP]
-    positions     = []
-    regime_probs  = []
+    bnh_eq        = [INITIAL_CAP]
     dates         = []
+    turnover_list = []
 
-    for i in range(split_idx, len(df) - 1):
-        if i < CONTEXT_LEN + VOL_WINDOW:
-            continue
+    for j, i in enumerate(range(split_idx, len(df_feat) - 1)):
+        if j >= len(smooth_pos):
+            break
 
-        # Feature context window
-        window     = df.iloc[i - CONTEXT_LEN:i][FEATURES].values
-        window_sc  = feat_scaler.transform(window)
-        tensor     = torch.tensor(window_sc, dtype=torch.float32).unsqueeze(0)
+        position   = smooth_pos[j]
+        actual_log = float(df_feat["log_return"].iloc[i + 1])
+        actual_pct = np.exp(actual_log) - 1
 
-        with torch.no_grad():
-            _, pred_regime = model(tensor)
-
-        regime_prob = float(pred_regime.item())
-
-        # Realized vol from last VOL_WINDOW days (more stable than model vol)
-        recent_vol  = float(df["log_return"].iloc[i - VOL_WINDOW:i].std())
-
-        # Signal
-        position    = compute_position(regime_prob, recent_vol)
-
-        # Actual next-day return
-        actual_log  = float(df["log_return"].iloc[i + 1])
-        actual_pct  = np.exp(actual_log) - 1
-
-        # Strategy return with transaction cost on position change
-        pos_change  = abs(position - prev_position)
-        strat_ret   = position * actual_pct - pos_change * TRANSACTION
-
+        pos_change = abs(position - prev_position)
+        strat_ret  = position * actual_pct - pos_change * TRANSACTION
         prev_position = position
 
         portfolio     *= (1 + strat_ret)
@@ -160,34 +209,36 @@ def run_backtest(ticker: str) -> dict:
         strat_returns.append(strat_ret)
         bnh_returns.append(actual_pct)
         equity.append(portfolio)
-        bnh_equity.append(bnh_portfolio)
-        positions.append(position)
-        regime_probs.append(regime_prob)
-        dates.append(df.index[i])
+        bnh_eq.append(bnh_portfolio)
+        turnover_list.append(pos_change)
+        dates.append(df_feat.index[i])
 
-    # ── Compute metrics ────────────────────────────────
-    strat_arr  = np.array(strat_returns)
-    bnh_arr    = np.array(bnh_returns)
-    eq_arr     = np.array(equity)
-    bnh_eq_arr = np.array(bnh_equity)
-    pos_arr    = np.array(positions)
-    n_days     = len(strat_arr)
+    strat_arr = np.array(strat_returns)
+    bnh_arr   = np.array(bnh_returns)
+    n_days    = len(strat_arr)
+
+    if n_days == 0:
+        return {"error": "Not enough test data"}
 
     total_ret  = (portfolio - INITIAL_CAP) / INITIAL_CAP
     bnh_ret    = (bnh_portfolio - INITIAL_CAP) / INITIAL_CAP
+    avg_turnover = float(np.mean(turnover_list))
 
-    wins       = np.sum(strat_arr > 0)
-    losses     = np.sum(strat_arr < 0)
-    win_rate   = wins / (wins + losses) if (wins + losses) > 0 else 0
+    wins     = np.sum(strat_arr > 0)
+    losses   = np.sum(strat_arr < 0)
+    win_rate = wins / (wins + losses) if (wins + losses) > 0 else 0
 
-    n_long     = int(np.sum(pos_arr > 0))
-    n_short    = int(np.sum(pos_arr < 0))
-    n_flat     = int(np.sum(pos_arr == 0))
+    pf_gains  = strat_arr[strat_arr > 0].sum()
+    pf_losses = abs(strat_arr[strat_arr < 0].sum())
+    profit_factor = float(pf_gains / pf_losses) if pf_losses > 0 else float("inf")
 
-    avg_regime = float(np.mean(regime_probs))
+    avg_pos = float(np.mean(smooth_pos))
+    pos_above1 = float(np.mean(smooth_pos > 1.0) * 100)
+    pos_below1 = float(np.mean(smooth_pos < 1.0) * 100)
 
     metrics = {
         "ticker":                ticker,
+        "strategy":              "vol_scaled_long",
         "test_start":            str(dates[0].date()) if dates else "N/A",
         "test_end":              str(dates[-1].date()) if dates else "N/A",
         "n_days":                n_days,
@@ -197,19 +248,19 @@ def run_backtest(ticker: str) -> dict:
         "annualized_return_pct": round(annualized_return(total_ret, n_days) * 100, 3),
         "sharpe_ratio":          round(sharpe(strat_arr), 4),
         "sortino_ratio":         round(sortino(strat_arr), 4),
-        "max_drawdown_pct":      round(max_drawdown(eq_arr) * 100, 3),
+        "max_drawdown_pct":      round(max_drawdown(np.array(equity)) * 100, 3),
         "win_rate_pct":          round(win_rate * 100, 2),
-        "profit_factor":         round(profit_factor(strat_arr), 4),
-        "n_long":                n_long,
-        "n_short":               n_short,
-        "n_flat":                n_flat,
-        "avg_regime_prob":       round(avg_regime, 4),
+        "profit_factor":         round(profit_factor, 4),
+        "avg_position":          round(avg_pos, 3),
+        "pct_overweight":        round(pos_above1, 1),
+        "pct_underweight":       round(pos_below1, 1),
+        "avg_daily_turnover":    round(avg_turnover, 5),
         "bnh_total_return_pct":  round(bnh_ret * 100, 3),
         "bnh_sharpe":            round(sharpe(bnh_arr), 4),
-        "bnh_max_drawdown_pct":  round(max_drawdown(bnh_eq_arr) * 100, 3),
+        "bnh_max_drawdown_pct":  round(max_drawdown(np.array(bnh_eq)) * 100, 3),
         "alpha_pct":             round((total_ret - bnh_ret) * 100, 3),
         "equity_curve":          [round(v, 2) for v in equity],
-        "bnh_curve":             [round(v, 2) for v in bnh_equity],
+        "bnh_curve":             [round(v, 2) for v in bnh_eq],
         "dates":                 [str(d.date()) for d in dates],
     }
 
@@ -219,7 +270,7 @@ def run_backtest(ticker: str) -> dict:
 
 
 def _print_metrics(m):
-    print(f"\n  --- Strategy ---")
+    print(f"\n  --- Strategy: Vol-Scaled Long ---")
     print(f"  Total return      : {m['total_return_pct']:>+8.3f}%")
     print(f"  Annualized return : {m['annualized_return_pct']:>+8.3f}%")
     print(f"  Sharpe ratio      : {m['sharpe_ratio']:>8.4f}")
@@ -227,15 +278,19 @@ def _print_metrics(m):
     print(f"  Max drawdown      : {m['max_drawdown_pct']:>8.3f}%")
     print(f"  Win rate          : {m['win_rate_pct']:>8.2f}%")
     print(f"  Profit factor     : {m['profit_factor']:>8.4f}")
-    print(f"  Positions (L/S/F) : {m['n_long']} / {m['n_short']} / {m['n_flat']}")
-    print(f"  Avg regime prob   : {m['avg_regime_prob']:>8.4f}")
-    print(f"\n  --- Buy & Hold ---")
+    print(f"  Avg position      : {m['avg_position']:>8.3f}x")
+    print(f"  Overweight days   : {m['pct_overweight']:>7.1f}%")
+    print(f"  Underweight days  : {m['pct_underweight']:>7.1f}%")
+    print(f"  Avg daily turnover: {m['avg_daily_turnover']:>8.5f}")
+    print(f"\n  --- Buy & Hold (1.0x always) ---")
     print(f"  Total return      : {m['bnh_total_return_pct']:>+8.3f}%")
     print(f"  Sharpe ratio      : {m['bnh_sharpe']:>8.4f}")
     print(f"  Max drawdown      : {m['bnh_max_drawdown_pct']:>8.3f}%")
-    print(f"\n  --- Alpha ---")
-    print(f"  Strategy vs BnH   : {m['alpha_pct']:>+8.3f}%")
+    print(f"\n  --- Comparison ---")
+    print(f"  Alpha vs BnH      : {m['alpha_pct']:>+8.3f}%")
     print(f"  Final capital     : ${m['final_capital']:,.2f}")
+    beats = "BEATS BUY & HOLD ✓" if m['sharpe_ratio'] > m['bnh_sharpe'] else "UNDERPERFORMS BUY & HOLD"
+    print(f"  Sharpe comparison : {beats}")
     print(f"{'='*60}\n")
 
 
