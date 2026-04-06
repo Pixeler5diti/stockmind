@@ -21,8 +21,7 @@ class StockLSTM(nn.Module):
         self.fc1     = nn.Linear(hidden_size, 24)
         self.relu    = nn.ReLU()
         self.fc2     = nn.Linear(24, 1)
-        # No sigmoid here — BCEWithLogitsLoss handles it during training
-        # torch.sigmoid() applied manually at inference
+        
 
     def forward(self, x):
         out, _ = self.lstm(x)
@@ -30,7 +29,7 @@ class StockLSTM(nn.Module):
         last   = self.dropout(last)
         last   = self.fc1(last)
         last   = self.relu(last)
-        return self.fc2(last)   # raw logit
+        return self.fc2(last)   
 
 
 def create_sequences(df, feature_cols, context_len=CONTEXT_LEN):
