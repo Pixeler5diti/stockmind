@@ -26,8 +26,8 @@ def get_features(df):
 
 def load_model(ticker: str):
     out_dir     = os.path.join(OUTPUTS_DIR, ticker.lower())
-    model_path  = os.path.join(out_dir, f"{ticker.lower()}_child_model.pt")
-    scaler_path = os.path.join(out_dir, f"{ticker.lower()}_scaler.pkl")
+    model_path  = os.path.join(out_dir, "vol_model.pt")
+    scaler_path = os.path.join(out_dir, "vol_model_scaler.pkl")
 
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"No trained model for {ticker}. Run train.py first.")
