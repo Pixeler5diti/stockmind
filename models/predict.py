@@ -19,7 +19,7 @@ CONF_SHORT   = 0.35    # sigmoid < this -> SHORT
 
 def get_features(df):
     """Mirror the feature selection from train.py."""
-    exclude = {"vol_regime", "vol_direction", "forward_return_1d",
+    exclude = {"vol_regime", "vol_direction", "price_direction","forward_return_1d",
                "Open", "High", "Low", "Close", "Volume"}
     return [c for c in df.columns if c not in exclude]
 
