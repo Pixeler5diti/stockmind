@@ -234,7 +234,7 @@ def train_model(ticker, target_col, model_name, parent_path=None):
     return model, scaler, metrics, model_path
 
 
-# ── Convenience wrappers ───────────────────────────────
+
 
 def train_ticker(ticker, parent_path=None):
     """Train both vol and price models for a ticker."""
@@ -242,14 +242,14 @@ def train_ticker(ticker, parent_path=None):
     print(f"  TRAINING ALL MODELS FOR {ticker}")
     print(f"{'#'*60}")
 
-    # 1. Vol direction model (risk / position sizing)
+    
     vol_parent = parent_path.replace("price_model", "vol_model") if parent_path else None
     _, _, vol_metrics, vol_path = train_model(
         ticker, "vol_direction", "vol_model",
         parent_path=vol_parent
     )
 
-    # 2. Price direction model (alpha / trade direction)
+    
     _, _, price_metrics, price_path = train_model(
         ticker, "price_direction", "price_model",
         parent_path=parent_path
@@ -259,8 +259,8 @@ def train_ticker(ticker, parent_path=None):
 
 
 if __name__ == "__main__":
-    # Train parent models on S&P 500
+   
     vol_parent_path, price_parent_path, _, _ = train_ticker("^GSPC")
 
-    # Train child models on AAPL with transfer learning
+    
     train_ticker("AAPL", parent_path=price_parent_path)

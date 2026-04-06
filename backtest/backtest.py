@@ -46,11 +46,11 @@ FEATURE_STORE = os.path.join(os.path.dirname(__file__), "..", "feature_store")
 os.makedirs(BACKTEST_DIR, exist_ok=True)
 
 INITIAL_CAP  = 10_000.0
-TRANSACTION  = 0.0002      # 0.02% per unit of position change
+TRANSACTION  = 0.0002      
 TRADING_DAYS = 252
 VOL_WINDOW   = 20
-CONF_HIGH    = 0.6         # only act if vol_prob above this...
-CONF_LOW     = 0.4         # ...or below this
+CONF_HIGH    = 0.6         
+CONF_LOW     = 0.4         
 POS_MIN      = 0.0
 POS_MAX      = 1.5
 EMA_SPAN     = 5
@@ -100,7 +100,7 @@ def ema_smooth(series, span=EMA_SPAN):
     return np.array(result)
 
 
-# ── Metrics ────────────────────────────────────────────
+
 
 def sharpe(returns, periods=TRADING_DAYS):
     if len(returns) == 0 or returns.std() == 0:
@@ -125,7 +125,7 @@ def annualized_return(total_ret, n_days):
     return float((1 + total_ret) ** (TRADING_DAYS / n_days) - 1)
 
 
-# ── Backtest engine ────────────────────────────────────
+
 
 def run_backtest(ticker: str) -> dict:
     print(f"\n{'='*60}")
@@ -148,10 +148,10 @@ def run_backtest(ticker: str) -> dict:
 
     n_features = vol_scaler.n_features_in_
 
-    # ── Pass 1: generate raw positions ─────────────────
+
     raw_positions = []
     vol_probs_all = []
-    current_pos   = 1.0   # start fully long
+    current_pos   = 1.0   
 
     for i in range(split_idx, len(df_feat) - 1):
         if i < CONTEXT_LEN + VOL_WINDOW:
@@ -166,23 +166,23 @@ def run_backtest(ticker: str) -> dict:
         with torch.no_grad():
             vol_prob = float(torch.sigmoid(vol_model(tensor)).item())
 
-        # Confidence filter — only update if model is decisive
+        
         if vol_prob > CONF_HIGH or vol_prob < CONF_LOW:
-            # Continuous scaling: high vol_prob → reduce, low vol_prob → increase
+            
             raw_pos = 1.0 - 0.5 * (vol_prob - 0.5) * 2
             raw_pos = float(np.clip(raw_pos, POS_MIN, POS_MAX))
             current_pos = raw_pos
-        # else: hold current_pos (no change when uncertain)
+        
 
         raw_positions.append(current_pos)
         vol_probs_all.append(vol_prob)
 
-    # ── Pass 2: EMA smooth positions ───────────────────
+   
     raw_arr      = np.array(raw_positions)
     smooth_pos   = ema_smooth(raw_arr, span=EMA_SPAN)
     smooth_pos   = np.clip(smooth_pos, POS_MIN, POS_MAX)
 
-    # ── Pass 3: simulate returns ────────────────────────
+    
     portfolio     = INITIAL_CAP
     bnh_portfolio = INITIAL_CAP
     prev_position = 1.0

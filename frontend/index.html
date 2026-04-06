@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>StckMind — Quant Dashboard</title>
+<title>StockMind:Quant Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
@@ -20,7 +20,7 @@
 html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;min-height:100vh}
 
-/* ── TOP BAR ── */
+/*  TOP BAR  */
 .topbar{background:var(--s1);border-bottom:1px solid var(--border);height:44px;padding:0 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200}
 .brand{font-size:13px;font-weight:600;letter-spacing:.06em;color:var(--green)}
 .topbar-right{display:flex;align-items:center;gap:16px}
@@ -28,7 +28,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 .live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-/* ── CONTROLS ── */
+/*  CONTROLS  */
 .controls{background:var(--s1);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
 .ctrl-group{display:flex;align-items:center;gap:8px}
 .ctrl-label{font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
@@ -39,10 +39,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 .run-btn:disabled{background:var(--dim);color:var(--muted);cursor:not-allowed}
 .status-msg{font-size:11px;color:var(--muted)}
 
-/* ── MAIN LAYOUT ── */
+/*  MAIN LAYOUT  */
 .main{padding:16px 20px;display:flex;flex-direction:column;gap:16px}
 
-/* ── SUMMARY CARDS ── */
+/*  SUMMARY CARDS */
 .cards-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border)}
 .card{background:var(--s1);padding:14px 16px}
 .card-label{font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
@@ -51,12 +51,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 .c-green{color:var(--green)}.c-red{color:var(--red)}.c-blue{color:var(--blue)}
 .c-amber{color:var(--amber)}.c-cyan{color:var(--cyan)}.c-muted{color:var(--muted)}
 
-/* ── SECTION HEADER ── */
+/*  SECTION HEADER  */
 .section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
 .section-title{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted)}
 .section-note{font-size:10px;color:var(--dim);font-style:italic}
 
-/* ── CHART PANELS ── */
+/* CHART PANELS  */
 .chart-panel{background:var(--s1);border:1px solid var(--border);padding:16px}
 .chart-wrap{position:relative}
 .chart-wrap canvas{display:block}
@@ -64,7 +64,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
 
-/* ── STATS PANELS ── */
+/*  STATS PANELS */
 .stats-panel{background:var(--s1);border:1px solid var(--border);padding:16px}
 .stat-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:11px}
 .stat-row:last-child{border:none}
@@ -73,12 +73,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 .stat-val{font-weight:500;text-align:right;min-width:70px}
 .stat-val.good{color:var(--green)}.stat-val.bad{color:var(--red)}.stat-val.neu{color:var(--amber)}
 
-/* ── MODEL METRICS ── */
+/*  MODEL METRICS */
 .model-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .model-panel{background:var(--s1);border:1px solid var(--border);padding:16px}
 .model-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
 
-/* ── TABLE ── */
+/* TABLE  */
 .bt-table{width:100%;border-collapse:collapse;font-size:11px}
 .bt-table th{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:8px 12px;border-bottom:1px solid var(--border);text-align:right;font-weight:400}
 .bt-table th:first-child{text-align:left}
@@ -88,13 +88,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 .bt-table .strat{color:var(--text)}
 .bt-table .bnh{color:var(--muted)}
 
-/* ── STRATEGY DESCRIPTION ── */
+/*  STRATEGY DESCRIPTION  */
 .desc-panel{background:var(--s1);border:1px solid var(--border);border-left:3px solid var(--green);padding:16px 20px}
 .desc-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:10px}
 .desc-body{font-family:var(--sans);font-size:12px;color:#a1a1aa;line-height:1.7}
 .desc-body p{margin-bottom:6px}
 
-/* ── LOADING ── */
+/*  LOADING  */
 .loading-overlay{display:none;position:fixed;inset:0;background:rgba(9,9,11,.85);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:16px}
 .loading-overlay.active{display:flex}
 .loading-spinner{width:32px;height:32px;border:2px solid var(--dim);border-top-color:var(--green);border-radius:50%;animation:spin 1s linear infinite}
@@ -105,7 +105,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12
 .lstep.done{color:var(--green)}
 @keyframes fadein{to{opacity:1}}
 
-/* ── HISTOGRAM ── */
+/*  HISTOGRAM  */
 .hist-wrap{position:relative;height:180px}
 </style>
 </head>
@@ -338,7 +338,7 @@ function renderAll(raw) {
   renderTable(d);
 }
 
-// ── Chart defaults ──
+//  Chart defaults 
 const DEF = {
   responsive: true,
   maintainAspectRatio: false,
@@ -378,7 +378,7 @@ function thinDates(dates, n=10) {
   return dates.map((d, i) => i % step === 0 ? d.slice(5) : '');
 }
 
-// ── 1. Cards ──
+//  1. Cards 
 function renderCards(d) {
   const strat = d.total_return_pct || 0;
   const bnh   = d.bnh_total_return_pct || 0;
@@ -408,7 +408,7 @@ function fmt(v, unit='') {
   return `${sign}${v.toFixed(2)}${unit}`;
 }
 
-// ── 2. Equity ──
+//  2. Equity 
 function renderEquity(d) {
   const labels = thinDates(d.dates);
   mkChart('equityChart', {
@@ -424,7 +424,7 @@ function renderEquity(d) {
   });
 }
 
-// ── 3. Drawdown ──
+//  3. Drawdown 
 function renderDrawdown(d) {
   function dd(curve) {
     const peak = [];
@@ -444,7 +444,7 @@ function renderDrawdown(d) {
   });
 }
 
-// ── 4. Position ──
+//  4. Position 
 function renderPosition(d) {
   const pos = d.positions || Array(d.equity_curve.length).fill(1);
   mkChart('positionChart', {
@@ -460,7 +460,7 @@ function renderPosition(d) {
   });
 }
 
-// ── 5. Rolling Sharpe ──
+//  5. Rolling Sharpe 
 function renderRolling(d) {
   const W = 60;
   const ret = d.equity_curve.map((v,i,arr) => i===0?0:(v-arr[i-1])/arr[i-1]);
@@ -484,7 +484,7 @@ function renderRolling(d) {
   });
 }
 
-// ── 6. Vol regime ──
+//  6. Vol regime
 function renderVol(d) {
   const vol = d.vol_series || Array(d.equity_curve.length).fill(0.01);
   const volPct = vol.map(v => +(v*100).toFixed(3));
@@ -500,7 +500,7 @@ function renderVol(d) {
   });
 }
 
-// ── 12. Exposure vs Vol ──
+//  12. Exposure vs Vol 
 function renderExpVol(d) {
   const pos = d.positions || Array(d.equity_curve.length).fill(1);
   const vol = (d.vol_series || Array(d.equity_curve.length).fill(0.01)).map(v => +(v*100).toFixed(3));
@@ -524,7 +524,7 @@ function renderExpVol(d) {
   });
 }
 
-// ── 7. Exposure stats ──
+// 7. Exposure stats 
 function renderExposureStats(d) {
   const pos = d.positions || [];
   const nChanges = pos.filter((p,i)=>i>0&&Math.abs(p-pos[i-1])>0.001).length;
@@ -541,7 +541,7 @@ function renderExposureStats(d) {
     <div class="stat-row"><span class="stat-key">${k}</span><span class="stat-val">${v}</span></div>`).join('');
 }
 
-// ── 8. Model metrics ──
+//  8. Model metrics 
 function renderModelMetrics(d) {
   const vm = d.vol_model_metrics || {};
   const rows = [
@@ -559,7 +559,7 @@ function renderModelMetrics(d) {
     <div class="stat-row"><span class="stat-key">${k}</span><span class="stat-val ${c}">${v}</span></div>`).join('');
 }
 
-// ── 9. Backtest table ──
+//  9. Backtest table 
 function renderTable(d) {
   const bnh = d.bnh_total_return_pct||0;
   const calmar = d.max_drawdown_pct !== 0 ? (d.annualized_return_pct / Math.abs(d.max_drawdown_pct)).toFixed(3) : '—';
@@ -590,7 +590,7 @@ function renderTable(d) {
     </tbody>`;
 }
 
-// Auto-run on load with default ticker
+
 window.addEventListener('load', () => {
   document.getElementById('statusMsg').textContent = 'Select ticker and click RUN BACKTEST';
 });

@@ -11,10 +11,10 @@ from models.lstm_model import StockLSTM, create_sequences, CONTEXT_LEN
 from data.data_pipeline import fetch_data, add_indicators, add_targets
 
 OUTPUTS_DIR  = os.path.join(os.path.dirname(__file__), "..", "outputs")
-TARGET_VOL   = 0.01    # 1% daily portfolio vol target
-MAX_POSITION = 1.0     # no leverage
-CONF_LONG    = 0.65    # sigmoid > this -> LONG
-CONF_SHORT   = 0.35    # sigmoid < this -> SHORT
+TARGET_VOL   = 0.01    
+MAX_POSITION = 1.0    
+CONF_LONG    = 0.65    
+CONF_SHORT   = 0.35    
 
 
 def get_features(df):
@@ -55,7 +55,7 @@ def prepare_context(ticker: str, scaler, n_features: int):
 
     features = get_features(df)
 
-    # Ensure feature count matches what the scaler was trained on
+    
     if len(features) != n_features:
         raise ValueError(
             f"Feature mismatch: model expects {n_features} features, "
@@ -106,7 +106,7 @@ def predict(ticker: str) -> dict:
     position   = compute_position(sigmoid_out, recent_vol)
     stance     = "LONG" if position > 0 else "SHORT" if position < 0 else "FLAT"
 
-    # 5-day price range — symmetric random-walk bands, no directional content
+    
     forecast_dates = []
     current = last_date
     while len(forecast_dates) < 5:
@@ -133,7 +133,7 @@ def predict(ticker: str) -> dict:
         "position_size":    abs(position),
         "daily_volatility": round(recent_vol * 100, 3),
         "forecast":         forecast,
-        # Legacy key — kept for API/frontend compatibility
+       
         "regime_prob":      round(sigmoid_out, 4),
     }
 
