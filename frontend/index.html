@@ -1,595 +1,599 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>StckMind</title>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-  <style>
-    :root {
-      --bg:      #0b0c0e;
-      --s1:      #111317;
-      --s2:      #16181d;
-      --border:  rgba(255,255,255,0.07);
-      --border2: rgba(255,255,255,0.12);
-      --text:    #e4e6eb;
-      --muted:   #6b7280;
-      --dim:     #374151;
-      --green:   #00d68f;
-      --green2:  #00b377;
-      --red:     #ff4d6d;
-      --yellow:  #fbbf24;
-      --blue:    #60a5fa;
-      --mono:    'IBM Plex Mono', monospace;
-      --sans:    'IBM Plex Sans', sans-serif;
-    }
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 13px; min-height: 100vh; }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>StckMind — Quant Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --bg:#09090b;--s1:#111113;--s2:#18181b;--s3:#1f1f23;
+  --border:rgba(255,255,255,0.06);--border2:rgba(255,255,255,0.1);
+  --text:#e4e4e7;--muted:#71717a;--dim:#3f3f46;
+  --green:#22c55e;--green2:#16a34a;--red:#ef4444;--red2:#dc2626;
+  --blue:#3b82f6;--amber:#f59e0b;--cyan:#06b6d4;--purple:#a855f7;
+  --mono:'IBM Plex Mono',monospace;--sans:'IBM Plex Sans',sans-serif;
+  --grid-color:rgba(255,255,255,0.04);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;min-height:100vh}
 
-    /* ── TOP BAR ── */
-    .topbar {
-      background: var(--s1);
-      border-bottom: 1px solid var(--border);
-      padding: 0 24px;
-      height: 44px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-    .topbar-left { display: flex; align-items: center; gap: 24px; }
-    .brand { font-weight: 600; font-size: 14px; letter-spacing: .08em; color: var(--green); }
-    .topbar-tag { font-size: 11px; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
-    .topbar-right { display: flex; align-items: center; gap: 16px; font-size: 11px; color: var(--muted); }
-    .live-ind { display: flex; align-items: center; gap: 6px; }
-    .live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+/* ── TOP BAR ── */
+.topbar{background:var(--s1);border-bottom:1px solid var(--border);height:44px;padding:0 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:200}
+.brand{font-size:13px;font-weight:600;letter-spacing:.06em;color:var(--green)}
+.topbar-right{display:flex;align-items:center;gap:16px}
+.live{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--muted);letter-spacing:.08em}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 
-    /* ── SEARCH BAR ── */
-    .searchbar {
-      background: var(--s1);
-      border-bottom: 1px solid var(--border);
-      padding: 12px 24px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .search-label { font-size: 11px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; white-space: nowrap; }
-    .search-input-wrap { display: flex; flex: 1; max-width: 400px; border: 1px solid var(--border2); background: var(--s2); }
-    .search-input-wrap input {
-      background: transparent; border: none; outline: none;
-      padding: 10px 14px; font-family: var(--mono); font-size: 15px;
-      color: var(--text); letter-spacing: .1em; text-transform: uppercase; flex: 1; width: 0;
-    }
-    .search-input-wrap input::placeholder { color: var(--muted); font-size: 13px; text-transform: none; letter-spacing: 0; }
-    .search-btn {
-      background: var(--green); color: #000; border: none;
-      padding: 0 20px; font-family: var(--mono); font-size: 11px;
-      font-weight: 600; letter-spacing: .12em; cursor: pointer;
-      text-transform: uppercase; white-space: nowrap; transition: background .15s;
-    }
-    .search-btn:hover { background: var(--green2); }
-    .search-btn:disabled { background: var(--dim); color: var(--muted); cursor: not-allowed; }
-    .err-msg { font-size: 12px; color: var(--red); }
+/* ── CONTROLS ── */
+.controls{background:var(--s1);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.ctrl-group{display:flex;align-items:center;gap:8px}
+.ctrl-label{font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase}
+.ctrl-btn{background:var(--s2);border:1px solid var(--border2);color:var(--muted);padding:5px 12px;font-family:var(--mono);font-size:11px;cursor:pointer;letter-spacing:.04em;transition:all .15s}
+.ctrl-btn:hover,.ctrl-btn.active{background:var(--s3);border-color:var(--green);color:var(--green)}
+.run-btn{background:var(--green);color:#000;border:none;padding:6px 18px;font-family:var(--mono);font-size:11px;font-weight:600;cursor:pointer;letter-spacing:.08em;text-transform:uppercase;transition:background .15s}
+.run-btn:hover{background:var(--green2)}
+.run-btn:disabled{background:var(--dim);color:var(--muted);cursor:not-allowed}
+.status-msg{font-size:11px;color:var(--muted)}
 
-    /* ── LOADING ── */
-    .loading { display: none; padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--s1); }
-    .loading.active { display: block; }
-    .loading-line { font-size: 12px; color: var(--muted); margin-bottom: 6px; opacity: 0; animation: fadein .3s forwards; }
-    .loading-line::before { content: '▶ '; color: var(--green); font-size: 10px; }
-    @keyframes fadein { to { opacity: 1; } }
+/* ── MAIN LAYOUT ── */
+.main{padding:16px 20px;display:flex;flex-direction:column;gap:16px}
 
-    /* ── MAIN GRID ── */
-    #results { display: none; }
-    .ticker-header {
-      background: var(--s1);
-      border-bottom: 1px solid var(--border);
-      padding: 16px 24px;
-      display: flex;
-      align-items: center;
-      gap: 32px;
-      flex-wrap: wrap;
-    }
-    .th-sym { font-size: 28px; font-weight: 600; letter-spacing: .04em; }
-    .th-price { font-size: 28px; font-weight: 600; color: var(--green); }
-    .th-divider { width: 1px; height: 32px; background: var(--border2); }
-    .th-meta { display: flex; flex-direction: column; gap: 2px; }
-    .th-meta-label { font-size: 10px; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
-    .th-meta-val { font-size: 13px; font-weight: 500; }
-    .badge-long  { color: var(--green);  border: 1px solid var(--green);  background: rgba(0,214,143,.08); padding: 4px 12px; font-size: 12px; font-weight: 600; letter-spacing: .1em; }
-    .badge-short { color: var(--red);    border: 1px solid var(--red);    background: rgba(255,77,109,.08); padding: 4px 12px; font-size: 12px; font-weight: 600; letter-spacing: .1em; }
-    .badge-flat  { color: var(--yellow); border: 1px solid var(--yellow); background: rgba(251,191,36,.08); padding: 4px 12px; font-size: 12px; font-weight: 600; letter-spacing: .1em; }
+/* ── SUMMARY CARDS ── */
+.cards-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--border)}
+.card{background:var(--s1);padding:14px 16px}
+.card-label{font-size:10px;color:var(--muted);letter-spacing:.1em;text-transform:uppercase;margin-bottom:6px}
+.card-val{font-size:20px;font-weight:600;letter-spacing:-.02em;line-height:1}
+.card-sub{font-size:10px;color:var(--muted);margin-top:4px}
+.c-green{color:var(--green)}.c-red{color:var(--red)}.c-blue{color:var(--blue)}
+.c-amber{color:var(--amber)}.c-cyan{color:var(--cyan)}.c-muted{color:var(--muted)}
 
-    /* ── LAYOUT ── */
-    .main-grid { display: grid; grid-template-columns: 1fr 320px; min-height: calc(100vh - 160px); }
-    .left-col { border-right: 1px solid var(--border); }
-    .right-col {}
+/* ── SECTION HEADER ── */
+.section-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.section-title{font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted)}
+.section-note{font-size:10px;color:var(--dim);font-style:italic}
 
-    /* ── CHART PANEL ── */
-    .panel { border-bottom: 1px solid var(--border); }
-    .panel-header { padding: 10px 16px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; background: var(--s2); }
-    .panel-title { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-    .panel-body { padding: 16px; }
-    .chart-wrap { position: relative; height: 220px; }
+/* ── CHART PANELS ── */
+.chart-panel{background:var(--s1);border:1px solid var(--border);padding:16px}
+.chart-wrap{position:relative}
+.chart-wrap canvas{display:block}
 
-    /* ── WHY SIGNAL ── */
-    .why-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1px; background: var(--border); }
-    .why-cell { background: var(--s1); padding: 14px 16px; }
-    .why-icon { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-    .why-val { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-    .why-desc { font-size: 11px; color: var(--muted); line-height: 1.5; }
-    .c-green { color: var(--green); }
-    .c-red   { color: var(--red); }
-    .c-yellow{ color: var(--yellow); }
-    .c-blue  { color: var(--blue); }
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.three-col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
 
-    /* ── STATS ── */
-    .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 16px; border-bottom: 1px solid var(--border); font-size: 12px; }
-    .stat-row:last-child { border: none; }
-    .stat-key { color: var(--muted); }
-    .stat-val { font-weight: 500; }
+/* ── STATS PANELS ── */
+.stats-panel{background:var(--s1);border:1px solid var(--border);padding:16px}
+.stat-row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);font-size:11px}
+.stat-row:last-child{border:none}
+.stat-key{color:var(--muted)}
+.stat-vals{display:flex;gap:20px}
+.stat-val{font-weight:500;text-align:right;min-width:70px}
+.stat-val.good{color:var(--green)}.stat-val.bad{color:var(--red)}.stat-val.neu{color:var(--amber)}
 
-    /* ── RANGE TABLE ── */
-    .range-row { display: grid; grid-template-columns: 90px 1fr; gap: 0; padding: 8px 16px; border-bottom: 1px solid var(--border); font-size: 12px; align-items: center; }
-    .range-row:last-child { border: none; }
-    .range-date { color: var(--muted); }
-    .range-bar-wrap { display: flex; align-items: center; gap: 8px; }
-    .range-low  { font-size: 11px; color: var(--muted); min-width: 52px; text-align: right; }
-    .range-high { font-size: 11px; color: var(--muted); min-width: 52px; }
-    .range-track { flex: 1; height: 4px; background: var(--dim); position: relative; border-radius: 2px; }
-    .range-fill  { position: absolute; top: 0; bottom: 0; background: var(--blue); border-radius: 2px; opacity: .6; }
+/* ── MODEL METRICS ── */
+.model-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.model-panel{background:var(--s1);border:1px solid var(--border);padding:16px}
+.model-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--cyan);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border)}
 
-    /* ── REPORT ── */
-    .report-body { padding: 16px; font-family: var(--sans); font-size: 13px; line-height: 1.75; color: #9ca3af; }
-    .report-body h1 { display: none; }
-    .report-body h2 { font-family: var(--mono); font-size: 10px; letter-spacing: .15em; color: var(--green); text-transform: uppercase; margin: 20px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-    .report-body h3 { font-size: 13px; color: var(--text); margin: 12px 0 4px; font-family: var(--mono); }
-    .report-body p  { margin-bottom: 8px; }
-    .report-body strong { color: var(--text); }
-    .report-body ul { padding-left: 16px; margin-bottom: 8px; }
-    .report-body li { margin-bottom: 4px; }
+/* ── TABLE ── */
+.bt-table{width:100%;border-collapse:collapse;font-size:11px}
+.bt-table th{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);padding:8px 12px;border-bottom:1px solid var(--border);text-align:right;font-weight:400}
+.bt-table th:first-child{text-align:left}
+.bt-table td{padding:9px 12px;border-bottom:1px solid var(--border);text-align:right}
+.bt-table td:first-child{text-align:left;color:var(--muted)}
+.bt-table tr:last-child td{border:none}
+.bt-table .strat{color:var(--text)}
+.bt-table .bnh{color:var(--muted)}
 
-    /* ── RIGHT PANEL SECTIONS ── */
-    .rp-section { border-bottom: 1px solid var(--border); }
+/* ── STRATEGY DESCRIPTION ── */
+.desc-panel{background:var(--s1);border:1px solid var(--border);border-left:3px solid var(--green);padding:16px 20px}
+.desc-title{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--green);margin-bottom:10px}
+.desc-body{font-family:var(--sans);font-size:12px;color:#a1a1aa;line-height:1.7}
+.desc-body p{margin-bottom:6px}
 
-    /* ── CONFIDENCE GAUGE ── */
-    .gauge-wrap { padding: 16px; }
-    .gauge-number { font-size: 48px; font-weight: 600; line-height: 1; margin-bottom: 4px; }
-    .gauge-label  { font-size: 10px; letter-spacing: .1em; color: var(--muted); text-transform: uppercase; margin-bottom: 14px; }
-    .gauge-track  { height: 6px; background: var(--dim); border-radius: 3px; margin-bottom: 6px; }
-    .gauge-fill   { height: 100%; border-radius: 3px; transition: width 1.2s cubic-bezier(.4,0,.2,1); }
-    .gauge-ends   { display: flex; justify-content: space-between; font-size: 10px; color: var(--muted); }
+/* ── LOADING ── */
+.loading-overlay{display:none;position:fixed;inset:0;background:rgba(9,9,11,.85);z-index:300;align-items:center;justify-content:center;flex-direction:column;gap:16px}
+.loading-overlay.active{display:flex}
+.loading-spinner{width:32px;height:32px;border:2px solid var(--dim);border-top-color:var(--green);border-radius:50%;animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:12px;color:var(--muted);letter-spacing:.06em}
+.loading-steps{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.lstep{font-size:11px;color:var(--dim);opacity:0;animation:fadein .4s forwards}
+.lstep.done{color:var(--green)}
+@keyframes fadein{to{opacity:1}}
 
-    /* ── SIGNAL REASON ── */
-    .reason-list { padding: 12px 16px; }
-    .reason-item { display: flex; align-items: flex-start; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
-    .reason-item:last-child { border: none; }
-    .reason-dot { width: 6px; height: 6px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
-    .reason-text { color: var(--text); line-height: 1.5; }
-    .reason-sub  { color: var(--muted); font-size: 11px; }
-
-    @media(max-width:900px){
-      .main-grid { grid-template-columns: 1fr; }
-      .left-col { border-right: none; }
-      .why-grid { grid-template-columns: 1fr; }
-    }
-  </style>
+/* ── HISTOGRAM ── */
+.hist-wrap{position:relative;height:180px}
+</style>
 </head>
 <body>
 
-<!-- TOP BAR -->
+<!-- Loading overlay -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text">RUNNING BACKTEST</div>
+  <div class="loading-steps" id="loadingSteps">
+    <div class="lstep" style="animation-delay:.0s">Fetching market data...</div>
+    <div class="lstep" style="animation-delay:.6s">Running vol model inference...</div>
+    <div class="lstep" style="animation-delay:1.2s">Simulating positions...</div>
+    <div class="lstep" style="animation-delay:1.8s">Computing metrics...</div>
+    <div class="lstep" style="animation-delay:2.4s">Rendering charts...</div>
+  </div>
+</div>
+
+<!-- Top bar -->
 <div class="topbar">
-  <div class="topbar-left">
-    <div class="brand">STCKMIND</div>
-    <div class="topbar-tag">Quantitative Signal System</div>
-  </div>
+  <div class="brand">STCKMIND / BACKTEST DASHBOARD</div>
   <div class="topbar-right">
-    <div class="live-ind"><div class="live-dot"></div>LIVE</div>
-    <span>LSTM · LANGGRAPH · MLFLOW</span>
+    <div class="live"><div class="live-dot"></div>QUANT RESEARCH</div>
+    <span style="font-size:10px;color:var(--dim)">Vol-Scaled Long Strategy</span>
   </div>
 </div>
 
-<!-- SEARCH BAR -->
-<div class="searchbar">
-  <div class="search-label">Ticker</div>
-  <div class="search-input-wrap">
-    <input type="text" id="tickerInput" placeholder="AAPL, NVDA, TSLA..." maxlength="10"/>
-    <button class="search-btn" id="analyzeBtn" onclick="analyze()">ANALYZE</button>
+<!-- Controls -->
+<div class="controls">
+  <div class="ctrl-group">
+    <div class="ctrl-label">Ticker</div>
+    <button class="ctrl-btn active" onclick="setTicker('^GSPC',this)">^GSPC</button>
+    <button class="ctrl-btn" onclick="setTicker('AAPL',this)">AAPL</button>
   </div>
-  <div class="err-msg" id="errMsg"></div>
+  <div class="ctrl-group">
+    <div class="ctrl-label">Period</div>
+    <button class="ctrl-btn active" id="periAll" onclick="setPeriod('all',this)">Full</button>
+    <button class="ctrl-btn" id="peri1y" onclick="setPeriod('1y',this)">1Y</button>
+  </div>
+  <button class="run-btn" id="runBtn" onclick="runBacktest()">RUN BACKTEST</button>
+  <span class="status-msg" id="statusMsg"></span>
 </div>
 
-<!-- LOADING -->
-<div class="loading" id="loadingBox">
-  <div class="loading-line" style="animation-delay:0s">Fetching market data...</div>
-  <div class="loading-line" style="animation-delay:.6s">Running LSTM regime detection...</div>
-  <div class="loading-line" style="animation-delay:1.2s">Computing volatility-targeted signal...</div>
-  <div class="loading-line" style="animation-delay:1.8s">Running 4-agent analysis pipeline...</div>
-  <div class="loading-line" style="animation-delay:2.4s">Compiling output...</div>
-</div>
+<!-- Main content -->
+<div class="main" id="mainContent" style="display:none">
 
-<!-- RESULTS -->
-<div id="results">
+  <!-- 1. Summary cards -->
+  <div class="cards-grid" id="cardsGrid"></div>
 
-  <!-- TICKER HEADER -->
-  <div class="ticker-header" id="tickerHeader"></div>
-
-  <!-- MAIN GRID -->
-  <div class="main-grid">
-
-    <!-- LEFT COLUMN -->
-    <div class="left-col">
-
-      <!-- PRICE CHART -->
-      <div class="panel">
-        <div class="panel-header">
-          <span class="panel-title">Price History + Signal</span>
-          <span id="chartSubtitle" style="font-size:11px;color:var(--muted)"></span>
-        </div>
-        <div class="panel-body">
-          <div class="chart-wrap"><canvas id="priceChart"></canvas></div>
-        </div>
-      </div>
-
-      <!-- WHY THIS SIGNAL -->
-      <div class="panel">
-        <div class="panel-header"><span class="panel-title">Why This Signal</span></div>
-        <div class="why-grid" id="whyGrid"></div>
-      </div>
-
-      <!-- 5-DAY RANGE -->
-      <div class="panel">
-        <div class="panel-header"><span class="panel-title">5-Day 95% Price Range</span><span style="font-size:11px;color:var(--muted)">Based on realized vol · not a directional forecast</span></div>
-        <div id="rangeRows"></div>
-      </div>
-
-      <!-- REPORT -->
-      <div class="panel">
-        <div class="panel-header"><span class="panel-title">Research Report</span><span style="font-size:11px;color:var(--muted)">4-agent LangGraph pipeline</span></div>
-        <div class="report-body" id="reportBody"></div>
-      </div>
-
+  <!-- 2. Equity curve -->
+  <div class="chart-panel">
+    <div class="section-hdr">
+      <span class="section-title">Equity Curve</span>
+      <span class="section-note">Volatility-Targeted Strategy vs Buy &amp; Hold · $10,000 initial capital</span>
     </div>
+    <div class="chart-wrap" style="height:260px"><canvas id="equityChart"></canvas></div>
+  </div>
 
-    <!-- RIGHT COLUMN -->
-    <div class="right-col">
-
-      <!-- CONFIDENCE GAUGE -->
-      <div class="rp-section">
-        <div class="panel-header"><span class="panel-title">Regime Confidence</span></div>
-        <div class="gauge-wrap">
-          <div class="gauge-number" id="gaugeNum"></div>
-          <div class="gauge-label">Uptrend Probability</div>
-          <div class="gauge-track"><div class="gauge-fill" id="gaugeFill" style="width:0"></div></div>
-          <div class="gauge-ends"><span style="color:var(--red)">SHORT</span><span>FLAT</span><span style="color:var(--green)">LONG</span></div>
-        </div>
+  <!-- 3+4. Drawdown + Position size -->
+  <div class="two-col">
+    <div class="chart-panel">
+      <div class="section-hdr">
+        <span class="section-title">Drawdown</span>
+        <span class="section-note">Peak-to-trough decline</span>
       </div>
-
-      <!-- SIGNAL REASONS -->
-      <div class="rp-section">
-        <div class="panel-header"><span class="panel-title">Signal Reasoning</span></div>
-        <div class="reason-list" id="reasonList"></div>
+      <div class="chart-wrap" style="height:200px"><canvas id="drawdownChart"></canvas></div>
+    </div>
+    <div class="chart-panel">
+      <div class="section-hdr">
+        <span class="section-title">Position Size Over Time</span>
+        <span class="section-note">1.0x = base exposure · Vol-scaling in action</span>
       </div>
-
-      <!-- MODEL STATS -->
-      <div class="rp-section">
-        <div class="panel-header"><span class="panel-title">Model Performance</span></div>
-        <div id="modelStats"></div>
-      </div>
-
-      <!-- SIGNAL STATS -->
-      <div class="rp-section">
-        <div class="panel-header"><span class="panel-title">Signal Parameters</span></div>
-        <div id="signalStats"></div>
-      </div>
-
+      <div class="chart-wrap" style="height:200px"><canvas id="positionChart"></canvas></div>
     </div>
   </div>
+
+  <!-- 5+6. Rolling Sharpe + Vol regime -->
+  <div class="two-col">
+    <div class="chart-panel">
+      <div class="section-hdr">
+        <span class="section-title">Rolling Sharpe (60-day)</span>
+        <span class="section-note">Risk-adjusted performance over time</span>
+      </div>
+      <div class="chart-wrap" style="height:200px"><canvas id="rollingChart"></canvas></div>
+    </div>
+    <div class="chart-panel">
+      <div class="section-hdr">
+        <span class="section-title">Realized Volatility</span>
+        <span class="section-note">20-day rolling vol · backdrop shows regime</span>
+      </div>
+      <div class="chart-wrap" style="height:200px"><canvas id="volChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- 12. Exposure vs Vol -->
+  <div class="chart-panel">
+    <div class="section-hdr">
+      <span class="section-title">Exposure vs Realized Volatility</span>
+      <span class="section-note">Proves model behavior: exposure drops when vol rises</span>
+    </div>
+    <div class="chart-wrap" style="height:200px"><canvas id="expVolChart"></canvas></div>
+  </div>
+
+  <!-- 7+8. Exposure stats + Model metrics -->
+  <div class="two-col">
+    <div class="stats-panel">
+      <div class="section-hdr" style="margin-bottom:12px">
+        <span class="section-title">Exposure Statistics</span>
+      </div>
+      <div id="exposureStats"></div>
+    </div>
+    <div class="model-grid" style="display:block">
+      <div class="model-panel">
+        <div class="model-title">Vol Direction Model — Classification Metrics</div>
+        <div id="modelMetrics"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 9. Backtest stats table -->
+  <div class="chart-panel">
+    <div class="section-hdr" style="margin-bottom:12px">
+      <span class="section-title">Backtest Statistics</span>
+      <span class="section-note">Strategy vs Buy &amp; Hold</span>
+    </div>
+    <table class="bt-table" id="btTable"></table>
+  </div>
+
+  <!-- 10. Strategy description -->
+  <div class="desc-panel">
+    <div class="desc-title">Strategy Overview</div>
+    <div class="desc-body">
+      <p>The model predicts short-term volatility direction using an LSTM classifier trained on realized volatility features. When volatility is expected to rise, portfolio exposure is reduced. When volatility is expected to fall or remain calm, exposure is increased.</p>
+      <p>This implements volatility-targeted position sizing — a standard technique in systematic risk management. The strategy is always long. No shorting. No leverage beyond 1.5×.</p>
+      <p>Signal logic: vol_prob &gt; 0.6 → reduce to ~0.5–0.9× · vol_prob &lt; 0.4 → increase to ~1.1–1.5× · else hold current position. Positions smoothed with 5-day EMA. Transaction cost 0.02% per unit change.</p>
+    </div>
+  </div>
+
 </div>
 
 <script>
 const API = 'http://localhost:8000';
-let priceChartInstance = null;
 
-document.getElementById('tickerInput').addEventListener('keydown', e => {
-  if (e.key === 'Enter') analyze();
-});
+let currentTicker = '^GSPC';
+let currentPeriod = 'all';
+let charts = {};
+let btData  = null;
 
-async function analyze() {
-  const ticker  = document.getElementById('tickerInput').value.trim().toUpperCase();
-  if (!ticker) return;
-  const btn     = document.getElementById('analyzeBtn');
-  const errMsg  = document.getElementById('errMsg');
-  const loading = document.getElementById('loadingBox');
-  const results = document.getElementById('results');
+function setTicker(t, btn) {
+  currentTicker = t;
+  document.querySelectorAll('.ctrl-group:first-child .ctrl-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+}
 
-  btn.disabled  = true;
-  errMsg.textContent = '';
-  results.style.display = 'none';
-  loading.classList.add('active');
+function setPeriod(p, btn) {
+  currentPeriod = p;
+  document.querySelectorAll('[id^=peri]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (btData) renderAll(btData);
+}
 
-  loading.querySelectorAll('.loading-line').forEach((el, i) => {
+function slicePeriod(data) {
+  if (currentPeriod === 'all' || !data.dates) return data;
+  const cutoff = new Date();
+  cutoff.setFullYear(cutoff.getFullYear() - 1);
+  const idx = data.dates.findIndex(d => new Date(d) >= cutoff);
+  if (idx <= 0) return data;
+  return {
+    ...data,
+    dates:         data.dates.slice(idx),
+    equity_curve:  data.equity_curve.slice(idx),
+    bnh_curve:     data.bnh_curve.slice(idx),
+    positions:     data.positions ? data.positions.slice(idx) : null,
+    vol_series:    data.vol_series ? data.vol_series.slice(idx) : null,
+    vol_probs_all: data.vol_probs_all ? data.vol_probs_all.slice(idx) : null,
+  };
+}
+
+async function runBacktest() {
+  const btn = document.getElementById('runBtn');
+  const msg = document.getElementById('statusMsg');
+  const overlay = document.getElementById('loadingOverlay');
+
+  btn.disabled = true;
+  msg.textContent = '';
+  overlay.classList.add('active');
+
+  // animate loading steps
+  overlay.querySelectorAll('.lstep').forEach((el, i) => {
     el.style.cssText = `animation:none;opacity:0;animation-delay:${i*0.6}s`;
     void el.offsetWidth; el.style.animation = '';
   });
 
   try {
-    const res  = await fetch(`${API}/analyze`, {
+    const res = await fetch(`${API}/backtest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticker })
+      body: JSON.stringify({ ticker: currentTicker })
     });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.detail || 'Request failed'); }
-    const data = await res.json();
-    loading.classList.remove('active');
-    results.style.display = 'block';
-    render(data);
-  } catch(err) {
-    loading.classList.remove('active');
-    errMsg.textContent = '✗ ' + err.message;
+    if (!res.ok) {
+      const e = await res.json();
+      throw new Error(e.detail || 'Backtest failed');
+    }
+    btData = await res.json();
+    overlay.classList.remove('active');
+    document.getElementById('mainContent').style.display = 'block';
+    renderAll(btData);
+    msg.textContent = `✓ ${currentTicker} · ${btData.test_start} → ${btData.test_end}`;
+    msg.style.color = 'var(--green)';
+  } catch (err) {
+    overlay.classList.remove('active');
+    msg.textContent = '✗ ' + err.message;
+    msg.style.color = 'var(--red)';
   } finally {
     btn.disabled = false;
   }
 }
 
-function render(data) {
-  const { ticker, recommendation, final_report, predictions } = data;
-  const { last_known_close, last_known_date, daily_volatility,
-          regime_prob, stance, position_size, forecast } = predictions;
-
-  const isLong  = stance === 'LONG';
-  const isShort = stance === 'SHORT';
-  const sigColor = isLong ? 'var(--green)' : isShort ? 'var(--red)' : 'var(--yellow)';
-  const badgeCls = isLong ? 'badge-long' : isShort ? 'badge-short' : 'badge-flat';
-  const confPct  = Math.round(regime_prob * 100);
-
-  // ── Ticker header ──
-  document.getElementById('tickerHeader').innerHTML = `
-    <div class="th-sym">${ticker}</div>
-    <div class="th-divider"></div>
-    <div>
-      <div style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:3px">Last Close</div>
-      <div class="th-price">$${last_known_close.toFixed(2)}</div>
-    </div>
-    <div class="th-divider"></div>
-    <div class="${badgeCls}">${isLong?'▲':isShort?'▼':'◆'} ${stance}</div>
-    <div class="th-divider"></div>
-    <div class="th-meta">
-      <div class="th-meta-label">Position Size</div>
-      <div class="th-meta-val" style="color:${sigColor}">${(position_size*100).toFixed(1)}% of portfolio</div>
-    </div>
-    <div class="th-meta">
-      <div class="th-meta-label">Daily Vol</div>
-      <div class="th-meta-val">${daily_volatility}%</div>
-    </div>
-    <div class="th-meta">
-      <div class="th-meta-label">As of</div>
-      <div class="th-meta-val">${last_known_date}</div>
-    </div>
-  `;
-
-  // ── Confidence gauge ──
-  document.getElementById('gaugeNum').textContent = confPct + '%';
-  document.getElementById('gaugeNum').style.color = sigColor;
-  const fill = document.getElementById('gaugeFill');
-  fill.style.background = sigColor;
-  setTimeout(() => fill.style.width = confPct + '%', 100);
-
-  // ── Signal reasoning ──
-  const vol    = parseFloat(daily_volatility);
-  const volAvg = 1.2;
-  const volLow = vol < volAvg;
-  const reasons = [
-    {
-      dot: isLong ? 'var(--green)' : 'var(--red)',
-      text: `Regime probability ${confPct}%`,
-      sub: confPct > 65 ? 'Model confident in uptrend' : confPct < 35 ? 'Model confident in downtrend' : 'Uncertain — signal weak'
-    },
-    {
-      dot: volLow ? 'var(--green)' : 'var(--yellow)',
-      text: `Volatility ${volLow ? 'below' : 'above'} average`,
-      sub: `${daily_volatility}%/day vs ~${volAvg}% historical avg`
-    },
-    {
-      dot: isLong ? 'var(--green)' : isShort ? 'var(--red)' : 'var(--muted)',
-      text: `Position: ${(position_size*100).toFixed(1)}% of portfolio`,
-      sub: `TARGET_VOL(1%) ÷ daily_vol(${daily_volatility}%) = size`
-    },
-    {
-      dot: 'var(--blue)',
-      text: 'Transfer learning: S&P 500 → ' + ticker,
-      sub: 'Parent model trained on 3yr market data'
-    }
-  ];
-
-  document.getElementById('reasonList').innerHTML = reasons.map(r => `
-    <div class="reason-item">
-      <div class="reason-dot" style="background:${r.dot}"></div>
-      <div>
-        <div class="reason-text">${r.text}</div>
-        <div class="reason-sub">${r.sub}</div>
-      </div>
-    </div>
-  `).join('');
-
-  // ── Why grid ──
-  document.getElementById('whyGrid').innerHTML = `
-    <div class="why-cell">
-      <div class="why-icon">Regime</div>
-      <div class="why-val ${isLong?'c-green':isShort?'c-red':'c-yellow'}">${stance}</div>
-      <div class="why-desc">${confPct}% probability the stock is in an ${isLong?'up':'down'}trend based on 30 technical features</div>
-    </div>
-    <div class="why-cell">
-      <div class="why-icon">Volatility</div>
-      <div class="why-val ${volLow?'c-green':'c-yellow'}">${daily_volatility}%<span style="font-size:12px;color:var(--muted)">/day</span></div>
-      <div class="why-desc">${volLow?'Low vol → larger position':'High vol → smaller position'}. Vol-targeting keeps risk constant.</div>
-    </div>
-    <div class="why-cell">
-      <div class="why-icon">Position</div>
-      <div class="why-val ${isLong?'c-green':isShort?'c-red':'c-yellow'}">${(position_size*100).toFixed(1)}%</div>
-      <div class="why-desc">${isLong?'Long':'Short'} ${(position_size*100).toFixed(1)}% of portfolio. Sized to target 1% daily P&L vol.</div>
-    </div>
-  `;
-
-  // ── 5-day range ──
-  const minLow  = Math.min(...forecast.map(r => r.low_95));
-  const maxHigh = Math.max(...forecast.map(r => r.high_95));
-  const span    = maxHigh - minLow || 1;
-  document.getElementById('rangeRows').innerHTML = forecast.map(row => {
-    const leftPct  = ((row.low_95  - minLow) / span * 80).toFixed(1);
-    const widthPct = ((row.high_95 - row.low_95) / span * 80).toFixed(1);
-    return `
-      <div class="range-row">
-        <div class="range-date">${row.date}</div>
-        <div class="range-bar-wrap">
-          <div class="range-low">$${row.low_95}</div>
-          <div class="range-track">
-            <div class="range-fill" style="left:${leftPct}%;width:${widthPct}%"></div>
-          </div>
-          <div class="range-high">$${row.high_95}</div>
-        </div>
-      </div>`;
-  }).join('');
-
-  // ── Model stats ──
-  document.getElementById('modelStats').innerHTML = [
-    ['Regime accuracy',   '~85% (test set)',      'c-green'],
-    ['Training method',   'Transfer learning',     ''],
-    ['Parent model',      'S&P 500 (^GSPC)',        ''],
-    ['Features',          '30 technical indicators',''],
-    ['Context window',    '30 trading days',        ''],
-    ['Experiment track',  'MLflow',                 ''],
-    ['Cached',            data.cached ? 'YES' : 'NO', ''],
-  ].map(([k,v,c]) => `
-    <div class="stat-row">
-      <div class="stat-key">${k}</div>
-      <div class="stat-val ${c}">${v}</div>
-    </div>`).join('');
-
-  // ── Signal stats ──
-  document.getElementById('signalStats').innerHTML = [
-    ['Regime prob',     regime_prob.toFixed(4),           isLong?'c-green':isShort?'c-red':'c-yellow'],
-    ['Long threshold',  '> 0.65',                          ''],
-    ['Short threshold', '< 0.35',                          ''],
-    ['Vol target',      '1.0% / day',                      ''],
-    ['Max position',    '100% (no leverage)',               ''],
-    ['Transaction cost','0.1% per trade',                   ''],
-  ].map(([k,v,c]) => `
-    <div class="stat-row">
-      <div class="stat-key">${k}</div>
-      <div class="stat-val ${c}">${v}</div>
-    </div>`).join('');
-
-  // ── Price chart ──
-  renderChart(ticker, last_known_close, forecast, stance, sigColor);
-
-  // ── Report ──
-  document.getElementById('reportBody').innerHTML = parseMd(final_report);
-
-  document.getElementById('results').scrollIntoView({ behavior: 'smooth', block: 'start' });
+function renderAll(raw) {
+  const d = slicePeriod(raw);
+  renderCards(d);
+  renderEquity(d);
+  renderDrawdown(d);
+  renderPosition(d);
+  renderRolling(d);
+  renderVol(d);
+  renderExpVol(d);
+  renderExposureStats(d);
+  renderModelMetrics(d);
+  renderTable(d);
 }
 
-function renderChart(ticker, lastClose, forecast, stance, sigColor) {
-  if (priceChartInstance) { priceChartInstance.destroy(); priceChartInstance = null; }
-
-  // Simulate 30-day price history using last close + random walk (realistic-looking)
-  // In production this would be fetched from the API
-  const seed = lastClose;
-  const hist = [];
-  let p = lastClose * 0.88;
-  for (let i = 0; i < 30; i++) {
-    p = p * (1 + (Math.random() - 0.48) * 0.018);
-    hist.push(parseFloat(p.toFixed(2)));
+// ── Chart defaults ──
+const DEF = {
+  responsive: true,
+  maintainAspectRatio: false,
+  interaction: { mode: 'index', intersect: false },
+  plugins: {
+    legend: { display: true, labels: { color: '#71717a', font: { family: 'IBM Plex Mono', size: 10 }, boxWidth: 10, padding: 14 } },
+    tooltip: {
+      backgroundColor: '#18181b', borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1,
+      titleColor: '#71717a', bodyColor: '#e4e4e7',
+      titleFont: { family: 'IBM Plex Mono', size: 10 },
+      bodyFont: { family: 'IBM Plex Mono', size: 11 },
+    }
+  },
+  scales: {
+    x: {
+      grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+      ticks: { color: '#52525b', font: { family: 'IBM Plex Mono', size: 9 }, maxTicksLimit: 8 },
+      border: { color: 'rgba(255,255,255,0.06)' }
+    },
+    y: {
+      grid: { color: 'rgba(255,255,255,0.04)', drawBorder: false },
+      ticks: { color: '#52525b', font: { family: 'IBM Plex Mono', size: 9 } },
+      border: { color: 'rgba(255,255,255,0.06)' }
+    }
   }
-  hist.push(lastClose);
+};
 
-  const histLabels  = Array.from({length: 31}, (_, i) => i === 30 ? 'Today' : `-${30-i}d`);
-  const foreLabels  = forecast.map(r => r.date.slice(5));
-  const foreMid     = forecast.map(r => r.mid);
+function mkChart(id, cfg) {
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart(document.getElementById(id).getContext('2d'), cfg);
+  return charts[id];
+}
 
-  const allLabels = [...histLabels, ...foreLabels];
-  const histData  = [...hist, ...Array(forecast.length).fill(null)];
-  const foreData  = [...Array(31).fill(null), ...foreMid];
-  // connect at last hist point
-  if (foreData.length > 31) foreData[30] = lastClose;
+function thinDates(dates, n=10) {
+  if (!dates) return [];
+  const step = Math.max(1, Math.floor(dates.length / n));
+  return dates.map((d, i) => i % step === 0 ? d.slice(5) : '');
+}
 
-  const ctx = document.getElementById('priceChart').getContext('2d');
-  priceChartInstance = new Chart(ctx, {
+// ── 1. Cards ──
+function renderCards(d) {
+  const strat = d.total_return_pct || 0;
+  const bnh   = d.bnh_total_return_pct || 0;
+  const items = [
+    { label: 'Strategy Return', val: fmt(strat,'%'), sub: `Ann. ${fmt(d.annualized_return_pct,'%')}`, cls: strat>=0?'c-green':'c-red' },
+    { label: 'Buy & Hold',      val: fmt(bnh,'%'),   sub: `Sharpe ${d.bnh_sharpe?.toFixed(3)}`, cls: bnh>=0?'c-green':'c-red' },
+    { label: 'Sharpe Ratio',    val: d.sharpe_ratio?.toFixed(3)||'—', sub: `Sortino ${d.sortino_ratio?.toFixed(3)||'—'}`, cls: (d.sharpe_ratio||0)>0?'c-green':'c-red' },
+    { label: 'Max Drawdown',    val: fmt(d.max_drawdown_pct,'%'), sub: `BnH ${fmt(d.bnh_max_drawdown_pct,'%')}`, cls: 'c-amber' },
+    { label: 'Alpha vs BnH',    val: fmt(d.alpha_pct,'%'), sub: `Win rate ${fmt(d.win_rate_pct,'%')}`, cls: (d.alpha_pct||0)>=0?'c-green':'c-red' },
+    { label: 'Profit Factor',   val: d.profit_factor?.toFixed(3)||'—', sub: `Turnover ${d.avg_daily_turnover?.toFixed(4)||'—'}/day`, cls: (d.profit_factor||0)>=1?'c-green':'c-red' },
+    { label: 'Avg Position',    val: (d.avg_position||1).toFixed(3)+'×', sub: `Max 1.5× · Min 0.5×`, cls: 'c-blue' },
+    { label: '% Overweight',    val: fmt(d.pct_overweight,'%'), sub: `Underweight ${fmt(d.pct_underweight,'%')}`, cls: 'c-cyan' },
+    { label: 'Test Window',     val: d.n_days+'d', sub: `${d.test_start} → ${d.test_end}`, cls: 'c-muted' },
+    { label: 'Final Capital',   val: '$'+Math.round(d.final_capital||10000).toLocaleString(), sub: `Started $10,000`, cls: (d.final_capital||10000)>=10000?'c-green':'c-red' },
+  ];
+  document.getElementById('cardsGrid').innerHTML = items.map(c => `
+    <div class="card">
+      <div class="card-label">${c.label}</div>
+      <div class="card-val ${c.cls}">${c.val}</div>
+      <div class="card-sub">${c.sub}</div>
+    </div>`).join('');
+}
+
+function fmt(v, unit='') {
+  if (v == null) return '—';
+  const sign = v >= 0 ? '+' : '';
+  return `${sign}${v.toFixed(2)}${unit}`;
+}
+
+// ── 2. Equity ──
+function renderEquity(d) {
+  const labels = thinDates(d.dates);
+  mkChart('equityChart', {
     type: 'line',
     data: {
-      labels: allLabels,
+      labels,
       datasets: [
-        {
-          label: 'Historical',
-          data: histData,
-          borderColor: '#60a5fa',
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0.3,
-          fill: false,
-        },
-        {
-          label: 'Signal: ' + stance,
-          data: foreData,
-          borderColor: sigColor,
-          borderWidth: 2,
-          borderDash: [4, 3],
-          pointRadius: (ctx) => ctx.dataIndex === 30 ? 4 : 0,
-          pointBackgroundColor: sigColor,
-          tension: 0.3,
-          fill: false,
-        }
+        { label: 'Vol-Scaled Strategy', data: d.equity_curve, borderColor: '#22c55e', borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false },
+        { label: 'Buy & Hold',          data: d.bnh_curve,    borderColor: '#3b82f6', borderWidth: 1.5, pointRadius: 0, tension: 0.2, fill: false, borderDash:[4,3] },
+      ]
+    },
+    options: { ...DEF, scales: { ...DEF.scales, y: { ...DEF.scales.y, ticks: { ...DEF.scales.y.ticks, callback: v => '$'+v.toLocaleString() } } } }
+  });
+}
+
+// ── 3. Drawdown ──
+function renderDrawdown(d) {
+  function dd(curve) {
+    const peak = [];
+    let pk = curve[0];
+    return curve.map(v => { pk = Math.max(pk,v); peak.push(pk); return ((v-pk)/pk*100); });
+  }
+  mkChart('drawdownChart', {
+    type: 'line',
+    data: {
+      labels: thinDates(d.dates),
+      datasets: [
+        { label: 'Strategy DD', data: dd(d.equity_curve), borderColor: '#ef4444', borderWidth: 1.2, pointRadius: 0, fill: true, backgroundColor: 'rgba(239,68,68,0.08)' },
+        { label: 'BnH DD',      data: dd(d.bnh_curve),   borderColor: '#3b82f6', borderWidth: 1.2, pointRadius: 0, fill: true, backgroundColor: 'rgba(59,130,246,0.05)', borderDash:[3,3] },
+      ]
+    },
+    options: { ...DEF, scales: { ...DEF.scales, y: { ...DEF.scales.y, ticks: { ...DEF.scales.y.ticks, callback: v => v.toFixed(0)+'%' } } } }
+  });
+}
+
+// ── 4. Position ──
+function renderPosition(d) {
+  const pos = d.positions || Array(d.equity_curve.length).fill(1);
+  mkChart('positionChart', {
+    type: 'line',
+    data: {
+      labels: thinDates(d.dates),
+      datasets: [
+        { label: 'Position Size', data: pos, borderColor: '#f59e0b', borderWidth: 1.2, pointRadius: 0, fill: true, backgroundColor: 'rgba(245,158,11,0.06)', tension: 0.3 },
+        { label: 'Base (1.0×)', data: Array(pos.length).fill(1), borderColor: 'rgba(255,255,255,0.15)', borderWidth: 1, borderDash:[4,4], pointRadius: 0, fill: false },
+      ]
+    },
+    options: { ...DEF, scales: { ...DEF.scales, y: { ...DEF.scales.y, min:0, max:1.7, ticks:{...DEF.scales.y.ticks,callback:v=>v.toFixed(1)+'×'} } } }
+  });
+}
+
+// ── 5. Rolling Sharpe ──
+function renderRolling(d) {
+  const W = 60;
+  const ret = d.equity_curve.map((v,i,arr) => i===0?0:(v-arr[i-1])/arr[i-1]);
+  const rolling = ret.map((_, i) => {
+    if (i < W) return null;
+    const slice = ret.slice(i-W, i);
+    const mu = slice.reduce((a,b)=>a+b,0)/W;
+    const sigma = Math.sqrt(slice.reduce((a,b)=>a+(b-mu)**2,0)/W);
+    return sigma===0?0:mu/sigma*Math.sqrt(252);
+  });
+  mkChart('rollingChart', {
+    type: 'line',
+    data: {
+      labels: thinDates(d.dates),
+      datasets: [
+        { label: '60d Sharpe', data: rolling, borderColor: '#a855f7', borderWidth: 1.2, pointRadius: 0, tension: 0.3, fill: false },
+        { label: '0 line', data: Array(rolling.length).fill(0), borderColor: 'rgba(255,255,255,0.1)', borderWidth: 1, borderDash:[3,3], pointRadius: 0, fill: false },
+      ]
+    },
+    options: DEF
+  });
+}
+
+// ── 6. Vol regime ──
+function renderVol(d) {
+  const vol = d.vol_series || Array(d.equity_curve.length).fill(0.01);
+  const volPct = vol.map(v => +(v*100).toFixed(3));
+  mkChart('volChart', {
+    type: 'line',
+    data: {
+      labels: thinDates(d.dates),
+      datasets: [
+        { label: 'Realized Vol (20d)', data: volPct, borderColor: '#06b6d4', borderWidth: 1.2, pointRadius: 0, fill: true, backgroundColor: 'rgba(6,182,212,0.07)', tension: 0.3 },
+      ]
+    },
+    options: { ...DEF, scales: { ...DEF.scales, y: { ...DEF.scales.y, ticks: { ...DEF.scales.y.ticks, callback: v => v.toFixed(1)+'%' } } } }
+  });
+}
+
+// ── 12. Exposure vs Vol ──
+function renderExpVol(d) {
+  const pos = d.positions || Array(d.equity_curve.length).fill(1);
+  const vol = (d.vol_series || Array(d.equity_curve.length).fill(0.01)).map(v => +(v*100).toFixed(3));
+  mkChart('expVolChart', {
+    type: 'line',
+    data: {
+      labels: thinDates(d.dates),
+      datasets: [
+        { label: 'Position Size (×)', data: pos, borderColor: '#f59e0b', borderWidth: 1.5, pointRadius: 0, fill: false, yAxisID: 'yPos', tension: 0.3 },
+        { label: 'Realized Vol (%)',  data: vol, borderColor: '#06b6d4', borderWidth: 1.2, pointRadius: 0, fill: false, yAxisID: 'yVol', borderDash:[3,3], tension: 0.3 },
       ]
     },
     options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: { display: true, labels: { color: '#6b7280', font: { family: 'IBM Plex Mono', size: 11 }, boxWidth: 12, padding: 16 } },
-        tooltip: {
-          backgroundColor: '#16181d',
-          borderColor: 'rgba(255,255,255,0.12)',
-          borderWidth: 1,
-          titleColor: '#9ca3af',
-          bodyColor: '#e4e6eb',
-          titleFont: { family: 'IBM Plex Mono', size: 11 },
-          bodyFont: { family: 'IBM Plex Mono', size: 12 },
-          callbacks: { label: ctx => ` $${ctx.parsed.y?.toFixed(2) ?? ''}` }
-        },
-        annotation: {}
-      },
+      ...DEF,
       scales: {
-        x: {
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          ticks: { color: '#6b7280', font: { family: 'IBM Plex Mono', size: 10 }, maxTicksLimit: 10 },
-          border: { color: 'rgba(255,255,255,0.07)' }
-        },
-        y: {
-          grid: { color: 'rgba(255,255,255,0.04)' },
-          ticks: { color: '#6b7280', font: { family: 'IBM Plex Mono', size: 10 }, callback: v => '$' + v.toFixed(0) },
-          border: { color: 'rgba(255,255,255,0.07)' }
-        }
+        x: DEF.scales.x,
+        yPos: { ...DEF.scales.y, position:'left',  ticks:{...DEF.scales.y.ticks,callback:v=>v.toFixed(1)+'×'} },
+        yVol: { ...DEF.scales.y, position:'right', grid:{display:false}, ticks:{...DEF.scales.y.ticks,callback:v=>v.toFixed(1)+'%'} },
       }
     }
   });
-
-  document.getElementById('chartSubtitle').textContent = `30-day history + 5-day signal overlay · ${ticker}`;
 }
 
-function parseMd(md) {
-  return md
-    .replace(/^# .+$/gm, '')
-    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
-    .replace(/(<li>.*<\/li>\n?)+/gs, m => `<ul>${m}</ul>`)
-    .split('\n\n').map(b => b.startsWith('<') ? b : `<p>${b}</p>`).join('\n');
+// ── 7. Exposure stats ──
+function renderExposureStats(d) {
+  const pos = d.positions || [];
+  const nChanges = pos.filter((p,i)=>i>0&&Math.abs(p-pos[i-1])>0.001).length;
+  const rows = [
+    ['Average position',      ((d.avg_position||1)*100).toFixed(1)+'%'],
+    ['Max position',          pos.length ? (Math.max(...pos)*100).toFixed(1)+'%' : '—'],
+    ['Min position',          pos.length ? (Math.min(...pos)*100).toFixed(1)+'%' : '—'],
+    ['Time overweight (>1×)', (d.pct_overweight||0).toFixed(1)+'%'],
+    ['Time underweight (<1×)',(d.pct_underweight||0).toFixed(1)+'%'],
+    ['Position changes',      nChanges.toString()],
+    ['Avg daily turnover',    (d.avg_daily_turnover||0).toFixed(5)],
+  ];
+  document.getElementById('exposureStats').innerHTML = rows.map(([k,v])=>`
+    <div class="stat-row"><span class="stat-key">${k}</span><span class="stat-val">${v}</span></div>`).join('');
 }
+
+// ── 8. Model metrics ──
+function renderModelMetrics(d) {
+  const vm = d.vol_model_metrics || {};
+  const rows = [
+    ['F1 score',           vm.f1?.toFixed(4)||'—', ''],
+    ['Accuracy',           vm.accuracy ? (vm.accuracy*100).toFixed(1)+'%' : '—', ''],
+    ['Precision',          vm.precision?.toFixed(4)||'—', ''],
+    ['Recall',             vm.recall?.toFixed(4)||'—', ''],
+    ['Threshold (tuned)',  vm.threshold?.toString()||'—', ''],
+    ['Baseline persist.',  vm.persistence_f1?.toFixed(4)||'—', 'bnh'],
+    ['Baseline majority',  vm.majority_f1?.toFixed(4)||'—', 'bnh'],
+    ['Beats persistence',  vm.beats_persistence ? 'YES ✓' : 'NO ✗', vm.beats_persistence?'good':'bad'],
+    ['Beats majority',     vm.beats_majority    ? 'YES ✓' : 'NO ✗', vm.beats_majority?'good':'bad'],
+  ];
+  document.getElementById('modelMetrics').innerHTML = rows.map(([k,v,c])=>`
+    <div class="stat-row"><span class="stat-key">${k}</span><span class="stat-val ${c}">${v}</span></div>`).join('');
+}
+
+// ── 9. Backtest table ──
+function renderTable(d) {
+  const bnh = d.bnh_total_return_pct||0;
+  const calmar = d.max_drawdown_pct !== 0 ? (d.annualized_return_pct / Math.abs(d.max_drawdown_pct)).toFixed(3) : '—';
+  const bCalmar = d.bnh_max_drawdown_pct !== 0 ? ((d.bnh_total_return_pct) / Math.abs(d.bnh_max_drawdown_pct)).toFixed(3) : '—';
+
+  const rows = [
+    ['Total return',    fmt(d.total_return_pct,'%'),   fmt(bnh,'%')],
+    ['Annual return',   fmt(d.annualized_return_pct,'%'), '—'],
+    ['Sharpe ratio',    d.sharpe_ratio?.toFixed(4)||'—', d.bnh_sharpe?.toFixed(4)||'—'],
+    ['Sortino ratio',   d.sortino_ratio?.toFixed(4)||'—', '—'],
+    ['Max drawdown',    fmt(d.max_drawdown_pct,'%'),   fmt(d.bnh_max_drawdown_pct,'%')],
+    ['Calmar ratio',    calmar, bCalmar],
+    ['Win rate',        fmt(d.win_rate_pct,'%'),       '—'],
+    ['Profit factor',   d.profit_factor?.toFixed(4)||'—', '—'],
+    ['Avg daily turnover', d.avg_daily_turnover?.toFixed(5)||'—', '—'],
+    ['Alpha vs BnH',    fmt(d.alpha_pct,'%'),          '—'],
+    ['Final capital',   '$'+(d.final_capital||10000).toLocaleString(), '—'],
+  ];
+
+  document.getElementById('btTable').innerHTML = `
+    <thead><tr>
+      <th style="text-align:left">Metric</th>
+      <th>Strategy</th>
+      <th>Buy &amp; Hold</th>
+    </tr></thead>
+    <tbody>${rows.map(([m,s,b])=>`
+      <tr><td>${m}</td><td class="strat">${s}</td><td class="bnh">${b}</td></tr>`).join('')}
+    </tbody>`;
+}
+
+// Auto-run on load with default ticker
+window.addEventListener('load', () => {
+  document.getElementById('statusMsg').textContent = 'Select ticker and click RUN BACKTEST';
+});
 </script>
 </body>
 </html>

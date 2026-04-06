@@ -225,6 +225,10 @@ def train_model(ticker, target_col, model_name, parent_path=None):
     scaler_path = os.path.join(out_dir, f"{model_name}_scaler.pkl")
     torch.save(model.state_dict(), model_path)
     joblib.dump(scaler, scaler_path)
+    import json as _json
+    metrics_path = os.path.join(out_dir, f"{model_name}_metrics.json")
+    with open(metrics_path, "w") as _mf:
+        _json.dump(metrics, _mf, indent=2)
     print(f"  [✓] Saved → {model_path}")
 
     return model, scaler, metrics, model_path

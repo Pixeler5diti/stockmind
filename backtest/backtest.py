@@ -261,6 +261,8 @@ def run_backtest(ticker: str) -> dict:
         "alpha_pct":             round((total_ret - bnh_ret) * 100, 3),
         "equity_curve":          [round(v, 2) for v in equity],
         "bnh_curve":             [round(v, 2) for v in bnh_eq],
+        "positions":             [round(v, 4) for v in smooth_pos[:len(dates)]],
+        "vol_series":            [round(float(df_feat["log_return"].iloc[split_idx+j-VOL_WINDOW:split_idx+j].std()), 6) for j in range(len(dates))],
         "dates":                 [str(d.date()) for d in dates],
     }
 
