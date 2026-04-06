@@ -66,11 +66,14 @@ def load_vol_model(ticker):
 
     scaler     = joblib.load(scaler_path)
     n_features = scaler.n_features_in_
-    model      = StockLSTM(input_size=n_features)
-    model.load_state_dict(torch.load(model_path, weights_only=True))
+
+    model = StockLSTM(input_size=n_features)
+
+    state = torch.load(model_path, map_location="cpu")
+    model.load_state_dict(state)
+
     model.eval()
     return model, scaler
-
 
 def get_features(df):
     exclude = {"vol_regime", "vol_direction", "price_direction",

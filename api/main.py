@@ -8,7 +8,7 @@ from pydantic import BaseModel
 import redis
 import json
 import time
-
+from backtest.backtest import run_backtest
 from models.train import train_ticker
 from models.predict import predict
 from agents.analyst import run_analysis
@@ -16,7 +16,7 @@ from agents.analyst import run_analysis
 PARENT_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "^gspc", "^gspc_child_model.pt")
 
 app = FastAPI(
-    title="StckMind API",
+    title="StockMind API",
     description="Stock prediction API powered by LSTM + Transfer Learning",
     version="2.0.0"
 )
@@ -129,6 +129,21 @@ def get_status(ticker: str):
     if not status:
         return {"ticker": ticker.upper(), "status": "no task found"}
     return {"ticker": ticker.upper(), **status}
+
+
+
+
+@app.post("/backtest")
+def backtest_endpoint(request: TickerRequest):
+    ticker = request.ticker.strip().upper()
+
+    try:
+        result = run_backtest(ticker)
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, str(e))
 
 
 @app.post("/analyze")
