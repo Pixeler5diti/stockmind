@@ -17,14 +17,15 @@ from agents.analyst import run_analysis
 import mlflow
 from dotenv import load_dotenv
 load_dotenv()
-MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
+MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
 mlflow.set_tracking_uri(MLFLOW_URI)
+mlflow.set_experiment("stckmind")
 
 OUTPUTS_DIR       = os.path.join(os.path.dirname(__file__), "..", "outputs")
 PARENT_MODEL_PATH = os.path.join(OUTPUTS_DIR, "^gspc", "price_model.pt")
 
 app = FastAPI(
-    title="StckMind API",
+    title="StockMind API",
     description="Volatility-targeted systematic trading system",
     version="3.0.0"
 )
@@ -74,17 +75,24 @@ def load_model_metrics(ticker: str, model_name: str) -> dict:
     return {}
 
 
-def run_training_job(ticker: str):
+ef run_training_job(ticker: str):
     task_key = f"task_{ticker.lower()}"
     try:
         cache_set(task_key, {"status": "running", "started_at": time.time()}, ttl=3600)
-        train_ticker(ticker)
+        
+        # Explicitly set experiment inside the thread to be safe
+        mlflow.set_experiment("stckmind") 
+        
+        # We pass the parent path if it exists for transfer learning
+        parent_path = os.path.join(OUTPUTS_DIR, "^gspc", "price_model.pt")
+        train_ticker(ticker, parent_path=parent_path if os.path.exists(parent_path) else None)
+        
         result = predict(ticker)
         cache_set(f"predict_{ticker.lower()}", result, ttl=86400)
         cache_set(task_key, {"status": "completed", "finished_at": time.time()}, ttl=3600)
     except Exception as e:
+        print(f"[!] Training Error: {e}")
         cache_set(task_key, {"status": "failed", "error": str(e)}, ttl=3600)
-
 
 @app.get("/")
 def root():
