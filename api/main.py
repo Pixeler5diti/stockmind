@@ -8,17 +8,25 @@ from pydantic import BaseModel
 import redis
 import json
 import time
+
 from backtest.backtest import run_backtest
 from models.train import train_ticker
 from models.predict import predict
 from agents.analyst import run_analysis
 
-PARENT_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "outputs", "^gspc", "^gspc_child_model.pt")
+import mlflow
+from dotenv import load_dotenv
+load_dotenv()
+MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
+mlflow.set_tracking_uri(MLFLOW_URI)
+
+OUTPUTS_DIR       = os.path.join(os.path.dirname(__file__), "..", "outputs")
+PARENT_MODEL_PATH = os.path.join(OUTPUTS_DIR, "^gspc", "price_model.pt")
 
 app = FastAPI(
-    title="StockMind API",
-    description="Stock prediction API powered by LSTM + Transfer Learning",
-    version="2.0.0"
+    title="StckMind API",
+    description="Volatility-targeted systematic trading system",
+    version="3.0.0"
 )
 
 app.add_middleware(
@@ -57,12 +65,20 @@ def cache_set(key: str, value: dict, ttl: int = 86400):
         task_store[key] = value
 
 
+def load_model_metrics(ticker: str, model_name: str) -> dict:
+    """Load saved classification metrics for a model."""
+    path = os.path.join(OUTPUTS_DIR, ticker.lower(), f"{model_name}_metrics.json")
+    if os.path.exists(path):
+        with open(path) as f:
+            return json.load(f)
+    return {}
+
+
 def run_training_job(ticker: str):
     task_key = f"task_{ticker.lower()}"
     try:
         cache_set(task_key, {"status": "running", "started_at": time.time()}, ttl=3600)
-        parent_path = PARENT_MODEL_PATH if os.path.exists(PARENT_MODEL_PATH) else None
-        train_ticker(ticker, parent_path=parent_path)
+        train_ticker(ticker)
         result = predict(ticker)
         cache_set(f"predict_{ticker.lower()}", result, ttl=86400)
         cache_set(task_key, {"status": "completed", "finished_at": time.time()}, ttl=3600)
@@ -74,8 +90,9 @@ def run_training_job(ticker: str):
 def root():
     return {
         "name": "StckMind API",
-        "version": "2.0.0",
-        "endpoints": ["/health", "/train-parent", "/train-child", "/predict", "/analyze", "/status/{ticker}"]
+        "version": "3.0.0",
+        "endpoints": ["/health", "/train-parent", "/train-child",
+                      "/predict", "/analyze", "/backtest", "/status/{ticker}"]
     }
 
 
@@ -94,7 +111,7 @@ def train_parent_endpoint(background_tasks: BackgroundTasks):
         except Exception as e:
             cache_set("task_parent", {"status": "failed", "error": str(e)}, ttl=7200)
     background_tasks.add_task(job)
-    return {"status": "training", "detail": "Parent model training started in background"}
+    return {"status": "training", "detail": "Parent model training started"}
 
 
 @app.post("/train-child")
@@ -118,7 +135,7 @@ def predict_endpoint(request: TickerRequest):
         result["cached"] = False
         return result
     except FileNotFoundError:
-        raise HTTPException(404, f"No model found for {ticker}. POST /train-child first.")
+        raise HTTPException(404, f"No model for {ticker}. POST /train-child first.")
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -131,14 +148,30 @@ def get_status(ticker: str):
     return {"ticker": ticker.upper(), **status}
 
 
-
-
 @app.post("/backtest")
 def backtest_endpoint(request: TickerRequest):
-    ticker = request.ticker.strip().upper()
+    ticker    = request.ticker.strip().upper()
+    cache_key = f"backtest_{ticker.lower()}"
+    cached    = cache_get(cache_key)
+    if cached:
+        cached["cached"] = True
+        return cached
 
     try:
         result = run_backtest(ticker)
+
+        # Attach vol model classification metrics
+        vol_metrics = load_model_metrics(ticker, "vol_model")
+        if vol_metrics:
+            result["vol_model_metrics"] = vol_metrics
+        else:
+            # Try parent ticker as fallback
+            vol_metrics = load_model_metrics("^GSPC", "vol_model")
+            if vol_metrics:
+                result["vol_model_metrics"] = vol_metrics
+
+        cache_set(cache_key, result, ttl=86400)
+        result["cached"] = False
         return result
     except FileNotFoundError as e:
         raise HTTPException(404, str(e))
@@ -158,7 +191,7 @@ def analyze_endpoint(request: TickerRequest):
     try:
         predictions = predict(ticker)
     except FileNotFoundError:
-        raise HTTPException(404, f"No model found for {ticker}. POST /train-child first.")
+        raise HTTPException(404, f"No model for {ticker}. POST /train-child first.")
 
     try:
         result = run_analysis(ticker, predictions)
