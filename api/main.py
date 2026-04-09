@@ -75,7 +75,7 @@ def load_model_metrics(ticker: str, model_name: str) -> dict:
     return {}
 
 
-ef run_training_job(ticker: str):
+def run_training_job(ticker: str):
     task_key = f"task_{ticker.lower()}"
     try:
         cache_set(task_key, {"status": "running", "started_at": time.time()}, ttl=3600)

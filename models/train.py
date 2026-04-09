@@ -5,7 +5,8 @@ import pandas as pd
 import joblib
 import os
 import sys
-
+import mlflow
+import mlflow.pytorch
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import f1_score, precision_score, recall_score
@@ -197,65 +198,65 @@ def evaluate(model, X_val, y_val, X_test, y_test, ticker="", target=""):
 
 
 def train_model(ticker, target_col, model_name, parent_path=None):
-    """
-    Generic trainer for any binary classification target.
-    model_name: used for saving, e.g. 'vol_model' or 'price_model'
-    """
-    print(f"\n  {'='*55}")
-    print(f"  TRAINING {model_name.upper()} — {ticker} → {target_col}")
-    print(f"  {'='*55}")
+    # START MLFLOW RUN
+    run_name = f"{ticker}_{model_name}"
+    with mlflow.start_run(run_name=run_name, nested=True): # Nested helps if calling from train_ticker
+        
+        print(f"\n  TRAINING {model_name.upper()} — {ticker}")
+        df = load_parquet(ticker)
+        train_loader, X_train, y_train, X_val, y_val, X_test, y_test, n_features, scaler = prepare_data(df, target_col)
 
-    df = load_parquet(ticker)
-    train_loader, X_train, y_train, X_val, y_val, X_test, y_test, n_features, scaler = prepare_data(df, target_col)
+        model = StockLSTM(input_size=n_features)
 
-    model = StockLSTM(input_size=n_features)
+        # Log Hyperparams
+        mlflow.log_params({
+            "ticker": ticker,
+            "target": target_col,
+            "batch_size": BATCH_SIZE,
+            "epochs": EPOCHS,
+            "lr": LR,
+            "transfer_learning": parent_path is not None
+        })
 
-    if parent_path and os.path.exists(parent_path):
-        try:
+        if parent_path and os.path.exists(parent_path):
             model.load_state_dict(torch.load(parent_path, weights_only=True))
-            print(f"  [+] Loaded parent weights from {parent_path}")
-        except Exception as e:
-            print(f"  [!] Parent weight load failed: {e} — training from scratch")
 
-    model   = train_loop(model, train_loader, y_train)
-    metrics = evaluate(model, X_val, y_val, X_test, y_test, ticker=ticker, target=target_col)
+        # Modified train_loop to log loss to MLflow
+        model = train_loop(model, train_loader, y_train) 
+        
+        metrics = evaluate(model, X_val, y_val, X_test, y_test, ticker=ticker, target=target_col)
 
-    out_dir     = get_output_dir(ticker)
-    model_path  = os.path.join(out_dir, f"{model_name}.pt")
-    scaler_path = os.path.join(out_dir, f"{model_name}_scaler.pkl")
-    torch.save(model.state_dict(), model_path)
-    joblib.dump(scaler, scaler_path)
-    import json as _json
-    metrics_path = os.path.join(out_dir, f"{model_name}_metrics.json")
-    with open(metrics_path, "w") as _mf:
-        _json.dump(metrics, _mf, indent=2)
-    print(f"  [✓] Saved → {model_path}")
+        # Log Metrics
+        mlflow.log_metrics({
+            f"{ticker}_accuracy": metrics["accuracy"],
+            f"{ticker}_f1": metrics["f1"],
+            "threshold": metrics["threshold"]
+        })
 
-    return model, scaler, metrics, model_path
+        # Save Artifacts
+        out_dir = get_output_dir(ticker)
+        model_path = os.path.join(out_dir, f"{model_name}.pt")
+        torch.save(model.state_dict(), model_path)
+        
+        # Log model to MLflow registry
+        mlflow.pytorch.log_model(model, f"{ticker}_{model_name}_model")
 
-
-
+        return model, scaler, metrics, model_path
 
 def train_ticker(ticker, parent_path=None):
-    """Train both vol and price models for a ticker."""
-    print(f"\n{'#'*60}")
-    print(f"  TRAINING ALL MODELS FOR {ticker}")
-    print(f"{'#'*60}")
+    # Main run to wrap both Vol and Price models
+    with mlflow.start_run(run_name=f"Full_Pipeline_{ticker}"):
+        vol_parent = parent_path.replace("price_model", "vol_model") if parent_path else None
+        
+        _, _, vol_metrics, vol_path = train_model(
+            ticker, "vol_direction", "vol_model", parent_path=vol_parent
+        )
 
-    
-    vol_parent = parent_path.replace("price_model", "vol_model") if parent_path else None
-    _, _, vol_metrics, vol_path = train_model(
-        ticker, "vol_direction", "vol_model",
-        parent_path=vol_parent
-    )
+        _, _, price_metrics, price_path = train_model(
+            ticker, "price_direction", "price_model", parent_path=parent_path
+        )
 
-    
-    _, _, price_metrics, price_path = train_model(
-        ticker, "price_direction", "price_model",
-        parent_path=parent_path
-    )
-
-    return vol_path, price_path, vol_metrics, price_metrics
+        return vol_path, price_path, vol_metrics, price_metrics
 
 
 if __name__ == "__main__":
