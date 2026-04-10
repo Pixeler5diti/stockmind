@@ -17,9 +17,12 @@ from agents.analyst import run_analysis
 import mlflow
 from dotenv import load_dotenv
 load_dotenv()
-MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
+MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
 mlflow.set_tracking_uri(MLFLOW_URI)
-mlflow.set_experiment("stckmind")
+try:
+    mlflow.set_experiment("stckmind")
+except Exception:
+    pass  
 
 OUTPUTS_DIR       = os.path.join(os.path.dirname(__file__), "..", "outputs")
 PARENT_MODEL_PATH = os.path.join(OUTPUTS_DIR, "^gspc", "price_model.pt")
