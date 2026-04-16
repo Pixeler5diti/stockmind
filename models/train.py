@@ -7,6 +7,8 @@ import os
 import sys
 import mlflow
 import mlflow.pytorch
+import re
+
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import RobustScaler
 from sklearn.metrics import f1_score, precision_score, recall_score
@@ -21,6 +23,13 @@ PATIENCE      = 10
 GRAD_CLIP     = 0.5
 FEATURE_STORE = os.path.join(os.path.dirname(__file__), "..", "feature_store")
 OUTPUTS_DIR   = os.path.join(os.path.dirname(__file__), "..", "outputs")
+
+
+# -----------------------------
+# FIX: sanitize names for MLflow
+# -----------------------------
+def sanitize_name(name: str):
+    return re.sub(r"[^a-zA-Z0-9_.\-:/ ]", "", name)
 
 
 def load_parquet(ticker):
@@ -192,23 +201,22 @@ def evaluate(model, X_val, y_val, X_test, y_test, ticker="", target=""):
         "threshold": t,
         "persistence_f1": bl["persistence"],
         "majority_f1":    bl["majority"],
-        "beats_persistence": beats_persistence,
-        "beats_majority":    beats_majority,
     }
 
 
 def train_model(ticker, target_col, model_name, parent_path=None):
-    # START MLFLOW RUN
-    run_name = f"{ticker}_{model_name}"
-    with mlflow.start_run(run_name=run_name, nested=True): # Nested helps if calling from train_ticker
-        
+
+    run_name = sanitize_name(f"{ticker}_{model_name}")
+
+    with mlflow.start_run(run_name=run_name, nested=True):
+
         print(f"\n  TRAINING {model_name.upper()} — {ticker}")
+
         df = load_parquet(ticker)
         train_loader, X_train, y_train, X_val, y_val, X_test, y_test, n_features, scaler = prepare_data(df, target_col)
 
         model = StockLSTM(input_size=n_features)
 
-        # Log Hyperparams
         mlflow.log_params({
             "ticker": ticker,
             "target": target_col,
@@ -221,33 +229,38 @@ def train_model(ticker, target_col, model_name, parent_path=None):
         if parent_path and os.path.exists(parent_path):
             model.load_state_dict(torch.load(parent_path, weights_only=True))
 
-        # Modified train_loop to log loss to MLflow
-        model = train_loop(model, train_loader, y_train) 
-        
+        model = train_loop(model, train_loader, y_train)
+
         metrics = evaluate(model, X_val, y_val, X_test, y_test, ticker=ticker, target=target_col)
 
-        # Log Metrics
+        # FIXED: safe metric names
         mlflow.log_metrics({
-            f"{ticker}_accuracy": metrics["accuracy"],
-            f"{ticker}_f1": metrics["f1"],
-            "threshold": metrics["threshold"]
+            "accuracy": metrics["accuracy"],
+            "f1": metrics["f1"],
+            "precision": metrics["precision"],
+            "recall": metrics["recall"],
+            "threshold": metrics["threshold"],
+            "persistence_f1": metrics["persistence_f1"],
+            "majority_f1": metrics["majority_f1"],
         })
 
-        # Save Artifacts
         out_dir = get_output_dir(ticker)
         model_path = os.path.join(out_dir, f"{model_name}.pt")
         torch.save(model.state_dict(), model_path)
-        
-        # Log model to MLflow registry
-        mlflow.pytorch.log_model(model, f"{ticker}_{model_name}_model")
+
+        mlflow.pytorch.log_model(model, "model")
 
         return model, scaler, metrics, model_path
 
+
 def train_ticker(ticker, parent_path=None):
-    # Main run to wrap both Vol and Price models
-    with mlflow.start_run(run_name=f"Full_Pipeline_{ticker}"):
+
+    run_name = sanitize_name(f"Full_Pipeline_{ticker}")
+
+    with mlflow.start_run(run_name=run_name):
+
         vol_parent = parent_path.replace("price_model", "vol_model") if parent_path else None
-        
+
         _, _, vol_metrics, vol_path = train_model(
             ticker, "vol_direction", "vol_model", parent_path=vol_parent
         )
@@ -260,8 +273,7 @@ def train_ticker(ticker, parent_path=None):
 
 
 if __name__ == "__main__":
-   
+
     vol_parent_path, price_parent_path, _, _ = train_ticker("^GSPC")
 
-    
     train_ticker("AAPL", parent_path=price_parent_path)

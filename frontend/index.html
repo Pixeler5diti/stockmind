@@ -545,5 +545,93 @@ function renderTable(d) {
     <tbody>${rows.map(([m,s,b])=>`<tr><td>${m}</td><td style="color:var(--text)">${s}</td><td style="color:var(--muted)">${b}</td></tr>`).join('')}</tbody>`;
 }
 </script>
+<!-- Walk-forward panel injection -->
+<script>
+(function () {
+  // wait until existing renderAll is defined
+  function patch() {
+    if (!window.renderAll) {
+      setTimeout(patch, 50);
+      return;
+    }
+
+    const _origRenderAll = window.renderAll;
+
+    window.renderAll = function (raw) {
+      _origRenderAll(raw);
+      if (raw && raw.walk_forward && raw.walk_forward.n_folds) {
+        renderWalkForward(raw.walk_forward);
+      }
+    };
+  }
+
+  patch();
+
+  function renderWalkForward(wf) {
+    // prevent duplicate
+    if (document.getElementById('wfPanel')) return;
+
+    const descPanel = document.querySelector('.desc-panel');
+    if (!descPanel) return;
+
+    const div = document.createElement('div');
+    div.id = 'wfPanel';
+    div.className = 'chart-panel';
+    div.style.marginBottom = '16px';
+
+    const beatPct = (wf.pct_beat_baseline || 0).toFixed(1);
+    const beatCls = wf.pct_beat_baseline >= 50 ? 'c-green' : 'c-amber';
+
+    div.innerHTML = `
+      <div class="section-hdr" style="margin-bottom:12px">
+        <span class="section-title">Walk-Forward Validation — Vol Direction Model</span>
+        <span class="section-note">
+          Strict chronological · ${wf.n_folds} folds · 500d train / 60d test each
+        </span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--border);margin-bottom:12px">
+        
+        <div style="background:var(--s2);padding:12px 14px">
+          <div class="card-label">Mean F1</div>
+          <div class="card-val c-green">${(wf.mean_f1 || 0).toFixed(4)}</div>
+          <div class="card-sub">±${(wf.std_f1 || 0).toFixed(4)} std</div>
+        </div>
+
+        <div style="background:var(--s2);padding:12px 14px">
+          <div class="card-label">Mean Persistence</div>
+          <div class="card-val c-muted">${(wf.mean_persistence || 0).toFixed(4)}</div>
+          <div class="card-sub">baseline to beat</div>
+        </div>
+
+        <div style="background:var(--s2);padding:12px 14px">
+          <div class="card-label">Folds Beat Baseline</div>
+          <div class="card-val ${beatCls}">
+            ${wf.folds_beat_baseline}/${wf.n_folds}
+          </div>
+          <div class="card-sub">${beatPct}% of folds</div>
+        </div>
+
+        <div style="background:var(--s2);padding:12px 14px">
+          <div class="card-label">F1 Range</div>
+          <div class="card-val c-blue">
+            ${(wf.min_f1 || 0).toFixed(3)}–${(wf.max_f1 || 0).toFixed(3)}
+          </div>
+          <div class="card-sub">min to max across folds</div>
+        </div>
+
+      </div>
+
+      <div style="font-size:11px;color:var(--muted);line-height:1.6">
+        Walk-forward tests whether the model generalizes across different market regimes — 
+        not just the single held-out test set. A mean F1 above the persistence baseline 
+        across multiple folds indicates the signal is not regime-specific.
+      </div>
+    `;
+
+    descPanel.parentNode.insertBefore(div, descPanel);
+  }
+})();
+</script>
 </body>
 </html>

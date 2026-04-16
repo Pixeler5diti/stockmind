@@ -17,18 +17,20 @@ from agents.analyst import run_analysis
 import mlflow
 from dotenv import load_dotenv
 load_dotenv()
+
+# Use local mlruns folder — no server required
+# To view: run `mlflow ui --backend-store-uri mlruns` separately
 MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "mlruns")
 mlflow.set_tracking_uri(MLFLOW_URI)
 try:
     mlflow.set_experiment("stckmind")
-except Exception:
-    pass  
+except Exception as e:
+    print(f"[!] MLflow experiment setup failed (non-fatal): {e}")
 
-OUTPUTS_DIR       = os.path.join(os.path.dirname(__file__), "..", "outputs")
-PARENT_MODEL_PATH = os.path.join(OUTPUTS_DIR, "^gspc", "price_model.pt")
+OUTPUTS_DIR = os.path.join(os.path.dirname(__file__), "..", "outputs")
 
 app = FastAPI(
-    title="StockMind API",
+    title="StckMind API",
     description="Volatility-targeted systematic trading system",
     version="3.0.0"
 )
@@ -55,23 +57,21 @@ class TickerRequest(BaseModel):
     ticker: str
 
 
-def cache_get(key: str):
+def cache_get(key):
     if redis_client:
         val = redis_client.get(key)
         return json.loads(val) if val else None
     return task_store.get(key)
 
 
-def cache_set(key: str, value: dict, ttl: int = 86400):
+def cache_set(key, value, ttl=86400):
     if redis_client:
         redis_client.setex(key, ttl, json.dumps(value))
     else:
         task_store[key] = value
 
 
-def load_model_metrics(ticker: str, model_name: str) -> dict:
-    """Load saved classification metrics for a model."""
-    path = os.path.join(OUTPUTS_DIR, ticker.lower(), f"{model_name}_metrics.json")
+def load_json(path):
     if os.path.exists(path):
         with open(path) as f:
             return json.load(f)
@@ -81,41 +81,35 @@ def load_model_metrics(ticker: str, model_name: str) -> dict:
 def run_training_job(ticker: str):
     task_key = f"task_{ticker.lower()}"
     try:
+        mlflow.set_tracking_uri(MLFLOW_URI)
         cache_set(task_key, {"status": "running", "started_at": time.time()}, ttl=3600)
-        
-        # Explicitly set experiment inside the thread to be safe
-        mlflow.set_experiment("stckmind") 
-        
-        # We pass the parent path if it exists for transfer learning
-        parent_path = os.path.join(OUTPUTS_DIR, "^gspc", "price_model.pt")
-        train_ticker(ticker, parent_path=parent_path if os.path.exists(parent_path) else None)
-        
+        train_ticker(ticker)
         result = predict(ticker)
         cache_set(f"predict_{ticker.lower()}", result, ttl=86400)
         cache_set(task_key, {"status": "completed", "finished_at": time.time()}, ttl=3600)
     except Exception as e:
-        print(f"[!] Training Error: {e}")
+        print(f"[!] Training error: {e}")
         cache_set(task_key, {"status": "failed", "error": str(e)}, ttl=3600)
+
 
 @app.get("/")
 def root():
-    return {
-        "name": "StckMind API",
-        "version": "3.0.0",
-        "endpoints": ["/health", "/train-parent", "/train-child",
-                      "/predict", "/analyze", "/backtest", "/status/{ticker}"]
-    }
+    return {"name": "StckMind API", "version": "3.0.0",
+            "endpoints": ["/health", "/train-parent", "/train-child",
+                          "/predict", "/analyze", "/backtest", "/walk-forward", "/status/{ticker}"]}
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "redis": "connected" if redis_client else "unavailable"}
+    return {"status": "ok", "redis": "connected" if redis_client else "unavailable",
+            "mlflow_uri": MLFLOW_URI}
 
 
 @app.post("/train-parent")
 def train_parent_endpoint(background_tasks: BackgroundTasks):
     def job():
         try:
+            mlflow.set_tracking_uri(MLFLOW_URI)
             cache_set("task_parent", {"status": "running", "started_at": time.time()}, ttl=7200)
             train_ticker("^GSPC")
             cache_set("task_parent", {"status": "completed", "finished_at": time.time()}, ttl=7200)
@@ -167,19 +161,22 @@ def backtest_endpoint(request: TickerRequest):
     if cached:
         cached["cached"] = True
         return cached
-
     try:
         result = run_backtest(ticker)
 
-        # Attach vol model classification metrics
-        vol_metrics = load_model_metrics(ticker, "vol_model")
-        if vol_metrics:
-            result["vol_model_metrics"] = vol_metrics
-        else:
-            # Try parent ticker as fallback
-            vol_metrics = load_model_metrics("^GSPC", "vol_model")
-            if vol_metrics:
-                result["vol_model_metrics"] = vol_metrics
+        # Attach vol model metrics
+        vm = load_json(os.path.join(OUTPUTS_DIR, ticker.lower(), "vol_model_metrics.json"))
+        if not vm:
+            vm = load_json(os.path.join(OUTPUTS_DIR, "^gspc", "vol_model_metrics.json"))
+        if vm:
+            result["vol_model_metrics"] = vm
+
+        # Attach walk-forward summary if available
+        wf = load_json(os.path.join(OUTPUTS_DIR, ticker.lower(), "walk_forward_summary.json"))
+        if not wf:
+            wf = load_json(os.path.join(OUTPUTS_DIR, "^gspc", "walk_forward_summary.json"))
+        if wf:
+            result["walk_forward"] = wf
 
         cache_set(cache_key, result, ttl=86400)
         result["cached"] = False
@@ -190,6 +187,27 @@ def backtest_endpoint(request: TickerRequest):
         raise HTTPException(500, str(e))
 
 
+@app.post("/walk-forward")
+def walk_forward_endpoint(request: TickerRequest, background_tasks: BackgroundTasks):
+    """Run walk-forward validation in background."""
+    ticker = request.ticker.strip().upper()
+    task_key = f"task_wf_{ticker.lower()}"
+
+    def job():
+        try:
+            from models.walk_forward import run_walk_forward
+            cache_set(task_key, {"status": "running", "started_at": time.time()}, ttl=7200)
+            summary = run_walk_forward(ticker)
+            cache_set(task_key, {"status": "completed", "summary": summary,
+                                  "finished_at": time.time()}, ttl=7200)
+        except Exception as e:
+            cache_set(task_key, {"status": "failed", "error": str(e)}, ttl=7200)
+
+    background_tasks.add_task(job)
+    return {"status": "running", "ticker": ticker,
+            "check_status": f"/status/wf_{ticker.lower()}"}
+
+
 @app.post("/analyze")
 def analyze_endpoint(request: TickerRequest):
     ticker    = request.ticker.strip().upper()
@@ -198,12 +216,10 @@ def analyze_endpoint(request: TickerRequest):
     if cached:
         cached["cached"] = True
         return cached
-
     try:
         predictions = predict(ticker)
     except FileNotFoundError:
         raise HTTPException(404, f"No model for {ticker}. POST /train-child first.")
-
     try:
         result = run_analysis(ticker, predictions)
         cache_set(cache_key, result, ttl=86400)
