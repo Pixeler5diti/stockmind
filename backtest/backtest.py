@@ -39,6 +39,7 @@ import joblib
 import json
 
 from models.lstm_model import StockLSTM, CONTEXT_LEN
+from data.data_pipeline import fetch_data, add_indicators, add_targets
 
 OUTPUTS_DIR   = os.path.join(os.path.dirname(__file__), "..", "outputs")
 BACKTEST_DIR  = os.path.join(os.path.dirname(__file__), "..", "outputs", "backtest")
@@ -82,12 +83,12 @@ def get_features(df):
 
 
 def load_data(ticker):
-    path = os.path.join(FEATURE_STORE, f"{ticker.lower()}_features.parquet")
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"No feature data for {ticker}.")
-    df = pd.read_parquet(path)
-    df["log_return"] = np.log(df["Close"] / df["Close"].shift(1))
-    df.dropna(inplace=True)
+    """Fetch fresh data from yfinance (real-time, not stale cache)."""
+    print(f"[+] Fetching fresh data for {ticker}...")
+    df = fetch_data(ticker, start="2020-01-01")
+    df = add_indicators(df)
+    df = add_targets(df)
+    df = df.replace([np.inf, -np.inf], np.nan).dropna()
     return df
 
 
